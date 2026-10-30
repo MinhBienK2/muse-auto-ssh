@@ -1,0 +1,14 @@
+# Keys and private configs
+*.private.txt
+*.key
+*.pem
+*.log
+id_rsa
+id_ed25519
+!*.pub
+.env
+
+# Temporary files
+/tmp/
+*.swp
+*.bak

@@ -1,0 +1,14 @@
+[Unit]
+Description=Muse to Local Machine Reverse SSH Tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStartPre=/bin/sh -c "pgrep -x sshd || /usr/sbin/sshd"
+ExecStart=/bin/bash /opt/muse-tunnel/reverse-tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

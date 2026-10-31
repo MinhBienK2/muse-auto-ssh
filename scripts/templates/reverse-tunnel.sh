@@ -23,14 +23,16 @@ if [ ! -f "$KEY_PATH" ] && [ -f "$HOME/.ssh/id_ed25519" ]; then
   KEY_PATH="$HOME/.ssh/id_ed25519"
 fi
 
-# Ensure local sshd on Muse is running
-if ! pgrep -x sshd >/dev/null 2>&1; then
-  /usr/sbin/sshd 2>/dev/null || true
-fi
 
 echo "[$(date '+%F %T')] Starting reverse tunnel to ${LOCAL_USER}@${LOCAL_IP} (Forwarding port ${REMOTE_PORT} -> localhost:22)..."
 
 while true; do
+  # Ensure local sshd directory and service are running
+  mkdir -p /run/sshd /var/run/sshd
+  if ! pgrep -x sshd >/dev/null 2>&1; then
+    /usr/sbin/sshd 2>/dev/null || true
+  fi
+
   ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
     -o "ProxyCommand=${PROXY_PATH} %h %p" \
     -o StrictHostKeyChecking=no \

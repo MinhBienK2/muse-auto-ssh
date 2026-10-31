@@ -5,12 +5,14 @@ KEY="/home/hatch/workspace/muse-platform-setup/keys/muse-agent-ed25519"
 PROXY="/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh"
 TARGET="minhbien@100.120.205.53"
 
-# Ensure sshd is running on Muse localhost:22
-if ! pgrep -x sshd >/dev/null 2>&1; then
-  /usr/sbin/sshd 2>/dev/null || true
-fi
 
 while true; do
+  # Ensure local sshd directory and service are running
+  mkdir -p /run/sshd /var/run/sshd
+  if ! pgrep -x sshd >/dev/null 2>&1; then
+    /usr/sbin/sshd 2>/dev/null || true
+  fi
+
   echo "[$(date '+%F %T')] starting tunnel to $TARGET..."
   ssh -N -R 2222:127.0.0.1:22 \
     -o "ProxyCommand=$PROXY %h %p" \

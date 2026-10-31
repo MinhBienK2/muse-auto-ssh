@@ -31,7 +31,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStartPre=/bin/sh -c "pgrep -x sshd || /usr/sbin/sshd"
+ExecStartPre=/bin/sh -c "mkdir -p /run/sshd /var/run/sshd && (pgrep -x sshd || /usr/sbin/sshd)"
 ExecStart=/bin/bash /opt/muse-tunnel/reverse-tunnel.sh
 Restart=always
 RestartSec=5
@@ -56,6 +56,7 @@ with open("/home/hatch/hooks/scripts/muse-platform-boot.sh", "r") as f:
 anchor = "set -euo pipefail\n"
 inject = """
 # [Self-healing: Auto keep SSH and G3 Reverse Tunnel alive]
+mkdir -p /run/sshd /var/run/sshd
 if ! pgrep -x sshd >/dev/null 2>&1; then
     /usr/sbin/sshd 2>/dev/null || true
 fi

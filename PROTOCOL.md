@@ -88,6 +88,10 @@ Ba nguyên tắc của kênh:
    `bridge.py send` chỉ là `ssh <peer> 'cat > <peer spool>/inbox/<id>.json'`.
 3. **Chịu được sự cố.** Ghi file tạm rồi `mv` (atomic). Gửi hỏng → tin nằm ở `outbox/pending-*`,
    `bridge.py sync` gửi lại khi kênh sống lại.
+4. **Một chiều vẫn dùng được (chế độ pull).** Container Muse có lúc không tạo được kết nối
+   outbound (đang boot lại, egress bị chặn) → nó không gửi được tin ra máy ngoài. Khi đó máy ngoài
+   **tự kéo** (`bridge.py pull`) tin từ `pending/` + `outbox/` của container qua chính kênh SSH đang
+   chạy. Nhờ vậy bus vẫn hai chiều chỉ cần **một** chiều kênh còn sống.
 
 ---
 
@@ -333,7 +337,7 @@ python3 ~/.muse-bridge/bridge.py status
 | Triệu chứng | Nguyên nhân | Cách xử lý |
 |---|---|---|
 | `PEER_STATE=DOWN` | Tunnel chết / sshd local tắt | Muse watchdog tự mở lại trong ≤10s; local: `sudo systemctl start ssh` |
-| `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin: nằm ở `outbox/pending-*`; `bridge.py sync` gửi lại |
+| `QUEUED` khi gửi | Peer chưa sẵn sàng (hoặc container đang boot, egress bị chặn) | Không mất tin: nằm ở `outbox/pending-*`; `bridge.py sync` gửi lại, và phía máy ngoài có thể `bridge.py pull` để kéo tin từ peer |
 | `Permission denied` khi Muse ssh vào local | TOFU chưa cài, key mới | `sudo bash scripts/install_tofu_hook.sh`, hoặc Muse gửi `QUESTION` kèm `MUSE_PUBKEY` |
 | `Address already in use` (port 2222) | Tunnel cũ còn treo | Local: `ss -tlnp | grep 2222` → dừng tunnel cũ, rồi `bridge.sh push` |
 | Tin không tới | Sai spool path giữa 2 bên | `bridge.sh status` in ra `SPOOL` và `PEER`; hai bên phải trùng `spool` |

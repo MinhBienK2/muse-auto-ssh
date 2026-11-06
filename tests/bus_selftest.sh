@@ -74,6 +74,30 @@ check "peer down -> QUEUED" $?
 [ -f "$LOCAL_SPOOL/pending"/*.json ] 2>/dev/null
 check "tin luu trong pending/" $?
 
+echo "== 5b. pull: keo tin pending cua peer ve inbox cua toi"
+cp "$LOCAL_SPOOL/config.json" "$TMP/local-pull.json"
+python3 - "$LOCAL_SPOOL/config.json" "$TMP/local-pull.json" <<'PY2'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+cfg["peer"]["transport"] = "dir"
+json.dump(cfg, open(sys.argv[2], "w"))
+PY2
+# peer (muse) co mot tin chua gui duoc -> nam trong pending/
+mkdir -p "$MUSE_SPOOL/pending"
+cat > "$MUSE_SPOOL/pending/20260101T000000Z-testpull.json" <<'PY3'
+{"v":1,"id":"20260101T000000Z-testpull","ts":"2026-01-01T00:00:00Z","from":"muse","to":"local","host":"muse","type":"NOTE","subject":"pulled","body":"x","reply_to":null,"meta":{}}
+PY3
+out=$(python3 "$BRIDGE" --config "$TMP/local-pull.json" pull)
+echo "$out" | grep -q "messages=1"
+check "pull lay 1 tin tu peer" $?
+[ -f "$LOCAL_SPOOL/inbox/20260101T000000Z-testpull.json" ]
+check "tin da ve inbox cua toi" $?
+[ ! -f "$MUSE_SPOOL/pending/20260101T000000Z-testpull.json" ]
+check "tin bi xoa o peer (khong keo trung)" $?
+out=$(python3 "$BRIDGE" --config "$TMP/local-pull.json" pull)
+echo "$out" | grep -q "messages=0"
+check "pull lan 2 khong trung tin" $?
+
 echo "== 6. sync lai khi peer up"
 cp "$LOCAL_SPOOL/config.json.broken" "$TMP/broken.bak"
 python3 - "$LOCAL_SPOOL/config.json.broken" <<'PY'

@@ -35,6 +35,7 @@ case "${1:-}" in
   send)      shift; bash "$LOCAL_SIDE" send "$@" ;;
   ack)       shift; bash "$LOCAL_SIDE" ack "$@" ;;
   sync)      shift; bash "$LOCAL_SIDE" sync "$@" ;;
+  pull)      shift; bash "$LOCAL_SIDE" pull "$@" ;;
   daemon)    shift; bash "$LOCAL_SIDE" daemon "$@" ;;
   prompt)    shift; bash "$LOCAL_SIDE" prompt "$@" ;;
   push)      shift; bash "$LOCAL_SIDE" push "$@" ;;

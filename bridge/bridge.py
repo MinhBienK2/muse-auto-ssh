@@ -356,6 +356,91 @@ def cmd_sync(cfg: dict, args) -> int:
     return 0 if ok == len(names) else 3
 
 
+
+def cmd_pull(cfg: dict, args) -> int:
+    """Keo tin nhan tu peer (huong peer -> toi) qua keh SSH dang chay.
+
+    Can cho truyen hai huong khi phia peer khong tao duoc ket noi outbound
+    (container Muse bi boot lai / egress bi chan): tin cua peer nam trong
+    pending/ hoac outbox/ cua no, tao keo ve inbox cua minh.
+    """
+    ensure_spool(cfg)
+    peer = cfg["peer"]
+    if peer.get("transport") == "dir":
+        src_dirs = [os.path.join(peer["spool"], "pending"), os.path.join(peer["spool"], "outbox")]
+        pulled = 0
+        for d in src_dirs:
+            if not os.path.isdir(d):
+                continue
+            for name in sorted(os.listdir(d)):
+                if not name.endswith(".json"):
+                    continue
+                src = os.path.join(d, name)
+                with open(src, "r", encoding="utf-8") as fh:
+                    msg = json.load(fh)
+                if already_seen(cfg, msg.get("id", "")):
+                    os.remove(src)
+                    continue
+                dst = msg_path(cfg["spool"], "inbox", msg.get("id", ""))
+                write_json(dst, msg)
+                os.remove(src)
+                pulled += 1
+        print("PULL messages=%d (dir)" % pulled)
+        return 0
+
+    remote = (
+        "set -e; mkdir -p %(peer)s/pulled; "
+        "for f in %(peer)s/pending/*.json %(peer)s/outbox/*.json; do "
+        "  [ -f \"$f\" ] || continue; n=$(basename \"$f\"); "
+        "  [ -f %(peer)s/pulled/$n ] && rm -f \"$f\" && continue; "
+        "  cp \"$f\" %(peer)s/pulled/$n; cat \"$f\"; "
+        "  echo '<<<MUSE_BRIDGE_FILE_EOF>>>'; rm -f \"$f\"; "
+        "done"
+    ) % {"peer": peer["spool"]}
+
+    cmd = ssh_base_cmd(peer) + [remote]
+    try:
+        proc = subprocess.run(
+            cmd, text=True, capture_output=True, stdin=subprocess.DEVNULL,
+            timeout=peer.get("timeout", 90)
+        )
+    except subprocess.TimeoutExpired:
+        print("PULL timeout")
+        return 3
+    except FileNotFoundError:
+        print("PULL no-ssh")
+        return 3
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip().splitlines()
+        print("PULL failed: %s" % (detail[-1] if detail else "ssh exit %d" % proc.returncode))
+        return 3
+
+    pulled = 0
+    for chunk in proc.stdout.split("<<<MUSE_BRIDGE_FILE_EOF>>>"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            msg = json.loads(chunk)
+        except ValueError:
+            continue
+        mid = msg.get("id", "")
+        if not mid or already_seen(cfg, mid):
+            continue
+        write_json(msg_path(cfg["spool"], "inbox", mid), msg)
+        pulled += 1
+    print("PULL messages=%d" % pulled)
+    return 0
+
+
+def already_seen(cfg: dict, msg_id: str) -> bool:
+    if not msg_id:
+        return False
+    return os.path.isfile(msg_path(cfg["spool"], "inbox", msg_id)) or os.path.isfile(
+        msg_path(cfg["spool"], "read", msg_id)
+    )
+
+
 def cmd_status(cfg: dict, args) -> int:
     ensure_spool(cfg)
     peer = cfg["peer"]
@@ -430,6 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("id")
 
     sub.add_parser("sync", help="retry delivery of pending messages")
+    sub.add_parser("pull", help="keo tin nhan tu peer ve inbox cua toi")
     st = sub.add_parser("status", help="show channel status")
     st.add_argument("--json", action="store_true")
     return p
@@ -446,6 +532,8 @@ def main(argv=None) -> int:
         return cmd_ack(cfg, args)
     if args.cmd == "sync":
         return cmd_sync(cfg, args)
+    if args.cmd == "pull":
+        return cmd_pull(cfg, args)
     if args.cmd == "status":
         return cmd_status(cfg, args)
     return 2

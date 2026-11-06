@@ -254,6 +254,7 @@ muse_provision() {
   ssh_host_push "$port" "$BRIDGE_PY" "cat > /root/.muse-bridge/bridge.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/muse_side.sh" "cat > /root/.muse-bridge/muse_side.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > /root/.muse-bridge/inject_watchdog.py" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > /root/.muse-bridge/ts-socat-proxy.sh" || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
 
   # chay setup phia Muse (sshd, loop tunnel, watchdog, config bus, HELLO/REPORT)
@@ -394,6 +395,12 @@ cmd_sync() {
   bus_py sync "${REST[@]}"
 }
 
+cmd_pull() {
+  parse_flags "$@"
+  require_host
+  bus_py pull
+}
+
 cmd_daemon() {
   parse_flags "$@"
   require_host
@@ -402,6 +409,7 @@ cmd_daemon() {
   local log="$STATE_DIR/logs/inbox-$HOST.log"
   say "daemon: watching spool cua host '$HOST' (Ctrl-C de dung)"
   ( while true; do
+      bus_py pull >>"$log" 2>&1 || true
       bus_py sync >>"$log" 2>&1 || true
       sleep 10
     done ) &
@@ -590,6 +598,7 @@ case "${1:-}" in
   send)      shift; cmd_send "$@" ;;
   ack)       shift; cmd_ack "$@" ;;
   sync)      shift; cmd_sync "$@" ;;
+  pull)      shift; cmd_pull "$@" ;;
   daemon)    shift; cmd_daemon "$@" ;;
   prompt)    shift; cmd_prompt "$@" ;;
   push)      shift; cmd_push "$@" ;;

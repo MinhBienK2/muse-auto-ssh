@@ -259,6 +259,18 @@ muse_provision() {
   # chay setup phia Muse (sshd, loop tunnel, watchdog, config bus, HELLO/REPORT)
   say "chay setup phia container..."
   ssh_host "$port" "bash /root/.muse-bridge/muse_side.sh setup --local-host $ts_ip --local-user $(id -un) --local-pubkey '$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")' --local-spool $spool --local-port $port" 2>&1 | tail -25
+  # tu dong authorize moi public key tren container (de moi may Muse duoc keo vao bus ngay)
+  local pkgs
+  pkgs="$(ssh_host "$port" "cat /root/.ssh/*.pub /home/hatch/.ssh/*.pub /home/hatch/workspace/muse-platform-setup/keys/*.pub /root/workspace/muse-platform-setup/keys/*.pub 2>/dev/null" 2>/dev/null | grep -E '^ssh-(ed25519|rsa) ' | sort -u)"
+  local pk
+  for pk in $pkgs; do
+    if ! grep -qxF "$pk" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+      say "authorize key moi cua container: ${pk:0:40}..."
+      echo "$pk" >> "$HOME/.ssh/authorized_keys"
+      chmod 600 "$HOME/.ssh/authorized_keys"
+    fi
+  done
+
   say "setup xong; neu HELLO/REPORT chua den, chay 'bridge.sh sync --host $HOST' de gui lai"
 }
 
@@ -510,9 +522,19 @@ cmd_onboard() {
 
     # gui yeu cau tiep theo cho agent
     local follow="$dir/follow.txt"
-    if grep -qi "permission denied" "$reply_file" 2>/dev/null; then
+    local probe_err; probe_err="$(ssh_host "$port" 'true' 2>&1 | tail -1)"
+    if echo "$probe_err" | grep -qi "permission denied"; then
+      # sshd cua container chay voi user root -> doc /root/.ssh/authorized_keys
+      say "may ngoai bi tu choi key -> nho agent them vao /root/.ssh/authorized_keys"
+      printf '%s\n' \
+        "Tôi không đăng nhập được vào container của bạn (Permission denied): sshd chạy với user root nên nó đọc /root/.ssh/authorized_keys, không phải /home/hatch/.ssh/authorized_keys. Bạn chạy:" \
+        "" \
+        "echo '$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys" \
+        "" \
+        "Xong báo tôi 'xong'." > "$follow"
+    elif grep -qi "permission denied" "$reply_file" 2>/dev/null; then
       say "agent bao Permission denied -> da authorize, nho thu lai"
-      printf '%s\n' "Máy tôi đã authorize public key của bạn trong authorized_keys. Bạn thử lại bước SSH từ container sang máy tôi (100.120.205.53) và báo tôi kết quả; nếu thông thì mở reverse tunnel cổng $port như đã nói." > "$follow"
+      printf '%s\n' "Máy tôi đã authorize public key của bạn trong authorized_keys. Bạn thử lại bước SSH từ container sang máy tôi ($ts_ip) và báo tôi kết quả; nếu thông thì mở reverse tunnel cổng $port như đã nói." > "$follow"
     elif grep -qiE "cho tôi biết|cần gì|bạn muốn tôi làm gì|hỏi" "$reply_file" 2>/dev/null; then
       say "agent hoi them -> tra loi theo cac buoc da gui"
       printf '%s\n' "Cứ làm tiếp theo đúng các bước tôi đã nói ở trên (bước 1, 2, 3, 4), mỗi bước một lệnh ngắn. Nếu bước nào lỗi thì dừng và báo tôi nguyên văn lỗi." > "$follow"
@@ -536,6 +558,30 @@ cmd_onboard() {
   python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port"
 }
 
+# ------------------------------------------------------------------ doctor
+cmd_doctor() {
+  parse_flags "$@"
+  say "=== DOCTOR ==="
+  ss -tln 2>/dev/null | grep -q ':22\b' && say "sshd: OK (:22)" || warn "sshd: KHONG listen :22"
+  if [ -f /etc/ssh/sshd_config.d/99-muse-bridge.conf ]; then
+    say "TOFU: hook da cai (/etc/ssh/sshd_config.d/99-muse-bridge.conf) - may Muse moi tu duoc nhan"
+  else
+    warn "TOFU: CHUA cai -> may Muse moi se can authorize key thu cong. Chay: sudo bash scripts/install_tofu_hook.sh"
+  fi
+  local ids; ids="$(host_ids)"
+  if [ -z "$ids" ]; then say "chua co Muse host nao"; return 0; fi
+  for id in $ids; do
+    local port; port="$(host_peer_port "$id")"
+    local state; state="$(card_field "$id" "state")"
+    python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$id")" "$port" >/dev/null 2>&1 || true
+    printf '%-10s port=%-6s ' "$id" "$port"
+    if ss -tln 2>/dev/null | grep -q ":$port\b"; then printf 'forward=LISTEN '; else printf 'forward=DOWN  '; fi
+    if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi
+    local inbox; inbox="$(ls "$STATE_DIR/spools/$id/inbox" 2>/dev/null | grep -c '\.json$' || true)"
+    printf 'inbox=%-3s state=%s\n' "$inbox" "${state:-unknown}"
+  done
+}
+
 # ------------------------------------------------------------------ dispatch
 case "${1:-}" in
   arm)       shift; cmd_arm "$@" ;;
@@ -548,6 +594,7 @@ case "${1:-}" in
   prompt)    shift; cmd_prompt "$@" ;;
   push)      shift; cmd_push "$@" ;;
   hosts)     shift; cmd_hosts "$@" ;;
+  doctor)    shift; cmd_doctor "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;

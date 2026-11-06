@@ -1,23 +1,36 @@
 #!/bin/bash
 # ==============================================================================
-# ts-socat-proxy.sh - Dynamic Tailscale Proxy Bridge via Hatch Egress Proxy
+# ts-socat-proxy.sh - Bridge Tailscale -> HTTP CONNECT proxy (DYNAMIC)
+#
+# Doc proxy tu HTTPS_PROXY (co the thieu user:pass, port khac nhau giua cac
+# container) - fallback quet /proc cua cac process dang chay.
+#
+# Usage: ts-socat-proxy.sh <target-host> <target-port>
 # ==============================================================================
+set -u
 
-# Auto-discover HTTPS_PROXY credentials if missing in current shell
-if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"@"* ]]; then
-  for p in $(pgrep -u root -f "python|bash|uvicorn" 2>/dev/null); do
+if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"://"* ]]; then
+  for p in $(pgrep -u root -f "python|bash|uvicorn|node" 2>/dev/null); do
     hp=$(cat /proc/$p/environ 2>/dev/null | tr "\0" "\n" | grep -m1 "^HTTPS_PROXY=" || true)
-    if [ -n "$hp" ] && [[ "$hp" == *"@"* ]]; then
+    if [ -n "$hp" ] && [[ "$hp" == *"://"* ]]; then
       eval "export $hp"
       break
     fi
   done
 fi
 
-rest="${HTTPS_PROXY#*://}"
-userpass="${rest%%@*}"
-puser="${userpass%%:*}"
-ppass="${userpass#*:}"
+url="${HTTPS_PROXY:-http://hatch-egress-proxy:3130}"
+rest="${url#*://}"
+userpass=""
+if [[ "$rest" == *"@"* ]]; then
+  userpass="${rest%%@*}"
+  rest="${rest#*@}"
+fi
+proxyhost="${rest%%:*}"
+proxyport="${rest##*:}"
+[ -z "$proxyhost" ] && proxyhost="hatch-egress-proxy"
+[[ "$proxyport" =~ ^[0-9]+$ ]] || proxyport=3130
+auth=""
+[ -n "$userpass" ] && auth=",proxyauth=${userpass}"
 
-# Connect to Tailscale endpoint via Hatch egress CONNECT proxy on port 3130
-exec socat - "PROXY:hatch-egress-proxy:$1:$2,proxyport=3130,proxyauth=${puser}:${ppass}"
+exec socat - "PROXY:${proxyhost}:$1:$2,proxyport=${proxyport}${auth}"

@@ -25,6 +25,7 @@ LOCAL_SIDE="$REPO_DIR/bridge/local_side.sh"
 
 case "${1:-}" in
   hosts)     shift; bash "$LOCAL_SIDE" hosts "$@" ;;
+  doctor)    shift; bash "$LOCAL_SIDE" doctor "$@" ;;
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;

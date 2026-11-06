@@ -38,6 +38,7 @@ detect_base() {
 detect_key() {
   local cand
   for cand in "$BASE/keys/muse-agent-ed25519" "$HOME/.ssh/id_ed25519" \
+              /home/hatch/.ssh/id_ed25519 /home/hatch/.ssh/id_ed25519_nopass \
               "$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519"; do
     if [ -f "$cand" ]; then KEY="$cand"; return 0; fi
   done
@@ -93,29 +94,52 @@ ensure_sshd() {
 
 ensure_proxy() {
   mkdir -p "$(dirname "$PROXY")"
-  if [ ! -f "$PROXY" ]; then
-    say "tao proxy script: $PROXY"
-    cat > "$PROXY" <<'TS_EOF'
+  local tmp="$PROXY.tmp.$$"
+  cat > "$tmp" <<'TS_EOF'
 #!/bin/bash
-# Bridge Tailscale -> HTTP CONNECT proxy (hatch-egress-proxy:3130)
-if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"@"* ]]; then
-  for p in $(pgrep -u root -f "python|bash|uvicorn" 2>/dev/null); do
+# ==============================================================================
+# ts-socat-proxy.sh - Bridge Tailscale -> HTTP CONNECT proxy (DYNAMIC)
+#
+# Doc proxy tu HTTPS_PROXY (co the thieu user:pass, port khac nhau giua cac
+# container) - fallback quet /proc cua cac process dang chay.
+#
+# Usage: ts-socat-proxy.sh <target-host> <target-port>
+# ==============================================================================
+set -u
+
+if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"://"* ]]; then
+  for p in $(pgrep -u root -f "python|bash|uvicorn|node" 2>/dev/null); do
     hp=$(cat /proc/$p/environ 2>/dev/null | tr "\0" "\n" | grep -m1 "^HTTPS_PROXY=" || true)
-    if [ -n "$hp" ] && [[ "$hp" == *"@"* ]]; then
+    if [ -n "$hp" ] && [[ "$hp" == *"://"* ]]; then
       eval "export $hp"
       break
     fi
   done
 fi
-rest="${HTTPS_PROXY#*://}"
-userpass="${rest%%@*}"
-puser="${userpass%%:*}"
-ppass="${userpass#*:}"
-exec socat - "PROXY:hatch-egress-proxy:$1:$2,proxyport=3130,proxyauth=${puser}:${ppass}"
+
+url="${HTTPS_PROXY:-http://hatch-egress-proxy:3130}"
+rest="${url#*://}"
+userpass=""
+if [[ "$rest" == *"@"* ]]; then
+  userpass="${rest%%@*}"
+  rest="${rest#*@}"
+fi
+proxyhost="${rest%%:*}"
+proxyport="${rest##*:}"
+[ -z "$proxyhost" ] && proxyhost="hatch-egress-proxy"
+[[ "$proxyport" =~ ^[0-9]+$ ]] || proxyport=3130
+auth=""
+[ -n "$userpass" ] && auth=",proxyauth=${userpass}"
+
+exec socat - "PROXY:${proxyhost}:$1:$2,proxyport=${proxyport}${auth}"
 TS_EOF
-    chmod +x "$PROXY"
+  chmod +x "$tmp"
+  if [ -f "$PROXY" ] && cmp -s "$tmp" "$PROXY"; then
+    rm -f "$tmp"
+    say "proxy script: $PROXY (da co, dung phien ban)"
   else
-    say "proxy script: $PROXY (da co)"
+    mv -f "$tmp" "$PROXY"
+    say "proxy script: $PROXY (da cap nhat)"
   fi
 }
 

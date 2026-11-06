@@ -208,9 +208,14 @@ stateDiagram-v2
 | 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s thử lại `ssh -R`; tự restart `sshd` nếu treo | ✅ tunnel bị giết → tự lên lại sau ~15s |
 | 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào chat Muse để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
 
-> Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) container** — lúc đó không tiến trình
-> nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container từ bên ngoài
-> (mở lại chat trên `muse.ai`), rồi lớp 1–3 lo phần còn lại.
+> Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) hoặc treo (suspend) container** — lúc đó
+> không tiến trình nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container
+> từ bên ngoài (gửi tin nhắn vào chat `muse.ai` của nó), rồi lớp 1–3 lo phần còn lại.
+>
+> **Quan sát thực tế:** chat bên (side chat) của Muse có thể bị nền tảng treo khi lâu không dùng →
+> container của nó ngừng chạy → tunnel rơi. Khi đó `bridge.sh repair` (hoặc daemon tự gọi mỗi 5 phút)
+> gửi tin nhắn vào đúng chat đó → cell được đánh thức → tunnel tự lên lại. Nếu muốn container sống
+> liên tục thì cần mở chat đó trên `muse.ai` (nền tảng giữ cell active khi chat đang mở).
 
 ---
 

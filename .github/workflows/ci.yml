@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cai ruff + shellcheck
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff shellcheck-py
+
+      - name: Kiem tra shell
+        run: bash tests/run_all.sh --strict
+
+      - name: Kiem tra prompt khong chua source code
+        run: python3 scripts/check_prompt_sync.sh --strict

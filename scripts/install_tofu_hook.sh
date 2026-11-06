@@ -36,7 +36,11 @@ touch "$STATE_DIR/tofu.enabled"
 chown "$USER_NAME:$USER_NAME" "$STATE_DIR/tofu.enabled"
 chmod 600 "$STATE_DIR/tofu.enabled"
 
-if [ -f "$CONF" ]; then cp "$CONF" "$CONF.bak.$(date +%s)"; fi
+BACKUP=""
+if [ -f "$CONF" ]; then
+  BACKUP="$CONF.bak.$(date +%s)"
+  cp "$CONF" "$BACKUP"
+fi
 cat > "$CONF" <<EOF
 # muse-bridge: tu pin (TOFU) key cua may Muse moi trong tailnet Tailscale.
 Match User $USER_NAME
@@ -48,7 +52,14 @@ chmod 644 "$CONF"
 
 if ! /usr/sbin/sshd -t; then
   echo "sshd -t that bai -> khoi phuc config cu" >&2
-  [ -f "$CONF.bak."* ] && cp "$(ls -t "$CONF".bak.* | head -1)" "$CONF"
+  # Dung bien BACKUP, khong dung glob: `[ -f "$CONF.bak."* ]` that bai khi co
+  # >=2 file backup (bash: too many arguments) -> config sshd hong khong duoc khoi phuc.
+  if [ -n "$BACKUP" ] && [ -f "$BACKUP" ]; then
+    cp "$BACKUP" "$CONF"
+    echo "da khoi phuc $CONF tu $BACKUP" >&2
+  else
+    echo "KHONG co backup de khoi phuc - sua $CONF bang tay" >&2
+  fi
   exit 1
 fi
 

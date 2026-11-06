@@ -1,0 +1,21 @@
+#!/bin/bash
+# ==============================================================================
+# pre-commit - chay kiem tra cua repo truoc khi commit.
+#
+# Bat nho:
+#   git config core.hooksPath .githooks
+#
+# (xem README.md muc "Guardrail")
+# ==============================================================================
+set -uo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_DIR" || exit 1
+
+echo "[pre-commit] chay tests/run_all.sh ..."
+if ! bash tests/run_all.sh; then
+  echo "[pre-commit] FAIL - khong commit. Sua loi tren roi commit lai." >&2
+  exit 1
+fi
+
+echo "[pre-commit] OK"

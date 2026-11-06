@@ -25,18 +25,20 @@ ok()   { echo "OK: $1"; }
 # --- 1) gia tri rieng cua may ----------------------------------------------
 # Chi xet file text (bo qua binary), va bo qua:
 #   100.64.0.0/10 - dai CGNAT cua Tailscale; 127.0.0.0/8 - loopback.
+# `legacy/` CUNG duoc quet - no cung da duoc push len git.
 IP_RE='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
-ip_hits="$(git grep -nE "$IP_RE" -- ':!legacy' ':!*.md' ':!*.pyc' 2>/dev/null \
+ip_hits="$(git grep -nE "$IP_RE" -- ':!*.md' ':!*.pyc' 2>/dev/null \
   | grep -vE '\b(127|0|255)\.' \
   | grep -vE '\b(10|172\.(1[6-9]|2[0-9]|3[01])|192\.168)\.' \
   | grep -vE '\b100\.(64|100|115|126|127)\.' || true)"
 
-# email
-email_hits="$(git grep -nE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' -- ':!legacy' ':!*.md' ':!*.pyc' 2>/dev/null || true)"
+# email (bo qua domain gia nhu example.invalid - RFC 2606)
+email_hits="$(git grep -nE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' -- ':!*.md' ':!*.pyc' 2>/dev/null \
+  | grep -vE '@[a-zA-Z0-9.-]*\.(invalid|example|test|local|localhost)([^a-zA-Z]|$)' || true)"
 
 # duong dan home cua nguoi viet (vi du /home/<ten>) - /home/hatch, /home/root,
 # /home/user (placeholder trong tai lieu) deu duoc phep.
-home_hits="$(git grep -nE '/home/[a-z][a-z0-9._-]+/' -- ':!legacy' ':!*.md' ':!*.pyc' 2>/dev/null \
+home_hits="$(git grep -nE '/home/[a-z][a-z0-9._-]+/' -- ':!*.md' ':!*.pyc' 2>/dev/null \
   | grep -vE '/home/(hatch|root|user)/' || true)"
 
 if [ -n "$ip_hits" ]; then

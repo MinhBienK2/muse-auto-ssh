@@ -12,8 +12,8 @@ if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
 
-LOCAL_USER="${LOCAL_USER:-minhbien}"
-LOCAL_IP="${LOCAL_IP:-100.120.205.53}"
+LOCAL_USER="${LOCAL_USER:-legacy-user}"
+LOCAL_IP="${LOCAL_IP:-100.64.0.1}"
 REMOTE_PORT="${REMOTE_PORT:-2222}"
 KEY_PATH="${KEY_PATH:-$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519}"
 PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"

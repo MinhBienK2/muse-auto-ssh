@@ -1,9 +1,9 @@
 #!/bin/bash
-# Reverse tunnel: Muse (this VM) -> G3 (minhbien@100.120.205.53)
+# Reverse tunnel: Muse (this VM) -> G3 (legacy-user@100.64.0.1)
 # Opens G3 localhost:2222 -> Muse localhost:22. Auto-reconnect loop.
 KEY="/home/hatch/workspace/muse-platform-setup/keys/muse-agent-ed25519"
 PROXY="/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh"
-TARGET="minhbien@100.120.205.53"
+TARGET="legacy-user@100.64.0.1"
 
 
 while true; do

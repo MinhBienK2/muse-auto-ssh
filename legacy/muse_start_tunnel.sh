@@ -7,7 +7,7 @@ set -euo pipefail
 
 if [ "$#" -lt 3 ]; then
   echo "Usage: $0 <LOCAL_IP> <LOCAL_USER> \"<LOCAL_PUBLIC_KEY>\""
-  echo "Example: $0 100.120.205.53 minhbien \"ssh-ed25519 AAAAC... phamm@minhbien\""
+  echo "Example: $0 100.64.0.1 legacy-user \"ssh-ed25519 AAAAC... legacy@example.invalid\""
   exit 1
 fi
 

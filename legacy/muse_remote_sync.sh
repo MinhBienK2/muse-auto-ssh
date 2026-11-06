@@ -16,9 +16,9 @@
 # ==============================================================================
 set -uo pipefail
 
-LOCAL_IP="${1:-100.120.205.53}"
-LOCAL_USER="${2:-minhbien}"
-LOCAL_PUB_KEY="${3:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL6imO2CxV2zyjmMyHr3LYmRO0vT8mjm+Cs7ptNodIfa phamminhbien333@gmail.com}"
+LOCAL_IP="${1:-100.64.0.1}"
+LOCAL_USER="${2:-legacy-user}"
+LOCAL_PUB_KEY="${3:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAALEGACYLEGACYLEGACYLEGACYLEGACYLEGACYLEGACYlegacy legacy@example.invalid}"
 MAILBOX_REL="${MAILBOX_REL:-muse-bridge}"
 
 HOME_DIR="${HOME:-/root}"
@@ -122,8 +122,8 @@ if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
 
-LOCAL_USER="${LOCAL_USER:-minhbien}"
-LOCAL_IP="${LOCAL_IP:-100.120.205.53}"
+LOCAL_USER="${LOCAL_USER:-legacy-user}"
+LOCAL_IP="${LOCAL_IP:-100.64.0.1}"
 REMOTE_PORT="${REMOTE_PORT:-2222}"
 KEY_PATH="${KEY_PATH:-$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519}"
 PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"

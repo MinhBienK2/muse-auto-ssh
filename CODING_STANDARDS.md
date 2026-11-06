@@ -36,8 +36,8 @@ mẫu để copy.
 **Quy tắc.** Repo này được kéo về máy người khác. Không file nào được chứa giá trị riêng của một
 máy cụ thể: IP Tailscale, username, đường dẫn home, hostname, port cố định, email.
 
-**Cách kiểm tra.** `bash scripts/check_hygiene.sh` — quét file tracked, loại trừ `legacy/`, tìm IP
-ngoài dải riêng (loopback / RFC1918 / dải CGNAT của Tailscale được miễn), email, và đường dẫn
+**Cách kiểm tra.** `bash scripts/check_hygiene.sh` — quét **mọi** file tracked (kể cả `legacy/`), tìm IP
+ngoài dải riêng (loopback / RFC1918 / dải CGNAT của Tailscale được miễn), email thật, và đường dẫn
 `/home/<tên-của-người-viết>`. Phải in `HYGIENE_CHECK: PASS`.
 
 Giá trị runtime lấy từ: `tunnel-<port>.conf` (phía Muse), `.muse-hosts/<id>.json` (phía máy ngoài),

@@ -32,9 +32,12 @@ BLOCK = """
 # [muse-bridge watchdog v4] BEGIN
 mkdir -p /run/sshd /var/run/sshd
 # 0) container refresh -> /root/.ssh/authorized_keys mat -> khoi phuc tu vung BEN VUNG
-mkdir -p /root/.ssh /home/hatch/.ssh
-if [ -f /home/hatch/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then
-    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+mkdir -p /root/.ssh
+SEED="/home/hatch/.muse-bridge/authorized_keys.seed"
+if [ -L /root/.ssh/authorized_keys ]; then rm -f /root/.ssh/authorized_keys; fi
+if [ ! -f /root/.ssh/authorized_keys ] && [ -f "$SEED" ]; then
+    cp -f "$SEED" /root/.ssh/authorized_keys 2>/dev/null || true
+    chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
 fi
 # 1) sshd phai TRA LOI duoc banner tren :22 (pgrep khong du - sshd treo van bi bo qua)
 if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH; then
@@ -80,6 +83,7 @@ fi
 OLD_BLOCK_PATTERNS = (
     r"\n?# \[Self-healing: Auto keep SSH and G3 Reverse Tunnel alive\].*?reverse-tunnel.*?\nfi\n",
     r"\n?# \[muse-bridge watchdog v\d+\] BEGIN.*?# \[muse-bridge watchdog v\d+\] END\n",
+    r"\n?silent \"muse-bridge watchdog ok\"\n",
 )
 
 
@@ -116,12 +120,14 @@ def main(argv: list) -> int:
         "host": host,
     }
 
+    # block phai khong duoc lam script hook "fail" (set -e) va phai ket thuc silent
+    body = inject.rstrip("\n") + "\nsilent \"muse-bridge watchdog ok\"\n"
     anchor = "set -euo pipefail\n"
     if anchor in content:
         i = content.find(anchor)
-        content = content[: i + len(anchor)] + inject + content[i + len(anchor) :]
+        content = content[: i + len(anchor)] + body + content[i + len(anchor) :]
     else:
-        content = inject + content
+        content = body + content
 
     with open(hook, "w", encoding="utf-8") as fh:
         fh.write(content)

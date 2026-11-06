@@ -261,8 +261,11 @@ muse_provision() {
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
 
   # chay setup phia Muse (sshd, loop tunnel, watchdog, config bus, HELLO/REPORT)
+  # public key truyen qua FILE (tranh loi trich dan long nhau -> key bi hong)
   say "chay setup phia container..."
-  ssh_host "$port" "bash /root/.muse-bridge/muse_side.sh setup --local-host $ts_ip --local-user $(id -un) --local-pubkey '$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")' --local-spool $spool --local-port $port" 2>&1 | tail -25
+  local pubkey; pubkey="$(awk '{print $1, $2}' "${LOCAL_KEY}.pub" 2>/dev/null | tr -s ' ')"
+  printf '%s\n' "$pubkey" | ssh_host "$port" \
+    "cat > /tmp/local.pub && bash /root/.muse-bridge/muse_side.sh setup --local-host $ts_ip --local-user $(id -un) --local-pubkey \"\$(cat /tmp/local.pub)\" --local-spool $spool --local-port $port" 2>&1 | tail -25
   # tu dong authorize moi public key tren container (de moi may Muse duoc keo vao bus ngay)
   local pkgs
   pkgs="$(ssh_host "$port" "cat /root/.ssh/*.pub /home/hatch/.ssh/*.pub /home/hatch/workspace/muse-platform-setup/keys/*.pub /root/workspace/muse-platform-setup/keys/*.pub 2>/dev/null" 2>/dev/null | grep -E '^ssh-(ed25519|rsa) ' | sort -u)"
@@ -329,9 +332,14 @@ install_sshd_hook() {
 install_bundle_local() {
   mkdir -p "$STATE_DIR/bundle"
   install -m 0755 "$BRIDGE_PY" "$STATE_DIR/bridge.py"
+  install -m 0755 "$BRIDGE_PY" "$STATE_DIR/bundle/bridge.py"
   install -m 0755 "$SCRIPT_DIR/muse_side.sh" "$STATE_DIR/bundle/muse_side.sh"
   install -m 0755 "$SCRIPT_DIR/muse_web.py" "$STATE_DIR/bundle/muse_web.py"
   install -m 0755 "$SCRIPT_DIR/inject_watchdog.py" "$STATE_DIR/bundle/inject_watchdog.py"
+  install -m 0755 "$SCRIPT_DIR/reverse-tunnel.sh" "$STATE_DIR/bundle/reverse-tunnel.sh"
+  install -m 0755 "$SCRIPT_DIR/ts-socat-proxy.sh" "$STATE_DIR/bundle/ts-socat-proxy.sh"
+  # VERSION: container tu keo bundle moi khi version doi (huong container -> may ngoai)
+  printf '%s\n' "$(date +%s)-$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)" > "$STATE_DIR/bundle/VERSION"
 }
 
 push_bundle() {

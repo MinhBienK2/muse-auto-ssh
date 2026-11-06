@@ -37,18 +37,17 @@ sshd_alive() {
 }
 
 ensure_authorized_keys() {
-  # Container refresh -> /root (overlay) bi xoa. Khoi phuc symlink ->
-  # /home/hatch/.ssh/authorized_keys (vung ben vung) de may ngoai vao duoc.
-  mkdir -p /root/.ssh /home/hatch/.ssh
-  chmod 700 /root/.ssh /home/hatch/.ssh 2>/dev/null || true
-  if [ -f /home/hatch/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then
-    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
-    log "da khoi phuc /root/.ssh/authorized_keys -> /home/hatch/.ssh/authorized_keys"
-  fi
-  if [ -L /root/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then
-    log "symlink authorized_keys bi hong - tao lai"
-    rm -f /root/.ssh/authorized_keys
-    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+  # Container refresh -> /root (overlay) bi xoa -> key may ngoai mat.
+  # Khoi phuc bang COPY tu seed ben vung (KHONG symlink: /home/hatch group-writable
+  # -> sshd StrictModes se tu choi key).
+  local seed="/home/hatch/.muse-bridge/authorized_keys.seed"
+  local ak="/root/.ssh/authorized_keys"
+  mkdir -p /root/.ssh; chmod 700 /root/.ssh 2>/dev/null || true
+  if [ -L "$ak" ]; then rm -f "$ak"; fi
+  if [ ! -f "$ak" ] && [ -f "$seed" ]; then
+    cp -f "$seed" "$ak" 2>/dev/null || true
+    chmod 600 "$ak" 2>/dev/null || true
+    log "da khoi phuc authorized_keys tu seed ben vung"
   fi
 }
 
@@ -69,12 +68,54 @@ ensure_sshd() {
 }
 
 log "loop start -> ${LOCAL_USER}@${LOCAL_IP}:${REMOTE_PORT} (key $KEY_PATH)"
+
+# --- tu keo ban moi tu may ngoai (huong container -> local qua proxy) ----------
+# Huong nay LUON hoat dong (key cua container da duoc may ngoai authorize),
+# nen container tu cai lai duoc du may ngoai khong vao duoc container.
+pull_updates() {
+  local base="/home/hatch/.muse-bridge"
+  local bundle="$base/bundle"
+  local ver
+  ver=$(timeout 25 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+        -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" 'cat ~/.muse-bridge/bundle/VERSION 2>/dev/null' 2>/dev/null | tr -d '\r')
+  [ -n "$ver" ] || return 0
+  [ "$ver" = "$(cat "$base/.version" 2>/dev/null)" ] && return 0
+  mkdir -p "$bundle"
+  local f
+  for f in bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
+    timeout 25 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+      -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" "cat ~/.muse-bridge/bundle/$f" > "$bundle/$f.new" 2>/dev/null || return 0
+    [ -s "$bundle/$f.new" ] || return 0
+  done
+  local hook="/home/hatch/hooks/scripts/muse-platform-boot.sh"
+  for f in bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
+    mv -f "$bundle/$f.new" "$bundle/$f"; chmod 700 "$bundle/$f"
+  done
+  cp -f "$bundle/bridge.py" "$base/bridge.py" 2>/dev/null || true
+  if [ -f "$hook" ] && [ -f "$base/inject_watchdog.py" ]; then
+    python3 "$base/inject_watchdog.py" "$hook" "$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh" \
+      "$KEY_PATH" "$PROXY_PATH" "$LOCAL_USER" "$LOCAL_IP" >/dev/null 2>&1 || true
+  fi
+  printf '%s\n' "$ver" > "$base/.version"
+  log "da tu keo bundle moi tu may ngoai (version $ver)"
+}
+
+pull_updates
 # ghi version de watchdog biet khi can restart (script da duoc nang cap)
 printf '%s\n' "$LOOP_VERSION" > "$(dirname "$LOG")/.loop_version" 2>/dev/null || true
 
+PULL_EVERY=5
+PULL_N=0
 while true; do
   ensure_authorized_keys
   ensure_sshd
+  PULL_N=$((PULL_N + 1))
+  if [ "$PULL_N" -ge "$PULL_EVERY" ]; then
+    PULL_N=0
+    pull_updates || true
+  fi
   ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
     -o "ProxyCommand=${PROXY_PATH} %h %p" \
     -o StrictHostKeyChecking=no \

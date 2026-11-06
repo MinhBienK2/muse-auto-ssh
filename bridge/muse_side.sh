@@ -147,6 +147,11 @@ authorize_local_key() {
   mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
   grep -qxF "$LOCAL_PUBKEY" "$HOME/.ssh/authorized_keys" 2>/dev/null || echo "$LOCAL_PUBKEY" >> "$HOME/.ssh/authorized_keys"
   chmod 600 "$HOME/.ssh/authorized_keys"
+  # luu seed ben vung de container tu khoi phuc sau khi refresh
+  mkdir -p "/home/hatch/.muse-bridge"
+  grep -qxF "$LOCAL_PUBKEY" "/home/hatch/.muse-bridge/authorized_keys.seed" 2>/dev/null || \
+    echo "$LOCAL_PUBKEY" >> "/home/hatch/.muse-bridge/authorized_keys.seed"
+  chmod 600 "/home/hatch/.muse-bridge/authorized_keys.seed" 2>/dev/null || true
   say "da authorize key may ngoai trong $HOME/.ssh/authorized_keys"
 }
 
@@ -244,7 +249,9 @@ EOF
 
 ensure_persistent_layout() {
   # Container refresh -> /root (overlay) bi xoa; /home/hatch (btrfs) moi ben vung.
-  # => bus + authorized_keys phai nam o /home/hatch, /root chi la symlink.
+  # => bus nam o /home/hatch (symlink OK, khong phai duong dan sshd).
+  # => authorized_keys: KHONG symlink sang /home/hatch (dir do group-writable ->
+  #    sshd StrictModes se TU CHOI key). Dung SEED file + COPY lai vao /root/.ssh.
   local persistent="/home/hatch/.muse-bridge"
   mkdir -p "$persistent" /home/hatch/.ssh
   if [ ! -L "$STATE_DIR" ] && [ -d "$STATE_DIR" ] && [ "$STATE_DIR" != "$persistent" ]; then
@@ -256,20 +263,53 @@ ensure_persistent_layout() {
     mkdir -p "$persistent"
     ln -sfn "$persistent" "$STATE_DIR"
   fi
-  # authorized_keys cua user root -> symlink sang /home/hatch/.ssh
-  mkdir -p /root/.ssh /home/hatch/.ssh
-  chmod 700 /root/.ssh /home/hatch/.ssh
-  if [ -f /root/.ssh/authorized_keys ] && [ ! -L /root/.ssh/authorized_keys ]; then
-    touch /home/hatch/.ssh/authorized_keys
-    cat /root/.ssh/authorized_keys >> /home/hatch/.ssh/authorized_keys
-    sort -u /home/hatch/.ssh/authorized_keys -o /home/hatch/.ssh/authorized_keys
-    rm -f /root/.ssh/authorized_keys
-    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
-    say "authorized_keys -> symlink sang /home/hatch/.ssh/authorized_keys"
-  elif [ ! -e /root/.ssh/authorized_keys ] && [ -f /home/hatch/.ssh/authorized_keys ]; then
-    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
-    say "khoi phuc authorized_keys tu /home/hatch/.ssh"
+
+  # --- authorized_keys: seed ben vung + copy vao /root/.ssh -------------------
+  local seed="$persistent/authorized_keys.seed"
+  local ak="/root/.ssh/authorized_keys"
+  mkdir -p /root/.ssh; chmod 700 /root/.ssh
+  if [ -L "$ak" ]; then
+    # symlink cu -> thay bang file that (StrictModes)
+    rm -f "$ak"
   fi
+  if [ -f "$ak" ]; then
+    cp -f "$ak" "$seed" 2>/dev/null || true
+    chmod 600 "$seed" 2>/dev/null || true
+  elif [ -f "$seed" ]; then
+    cp -f "$seed" "$ak" 2>/dev/null || true
+    chmod 600 "$ak" 2>/dev/null || true
+    say "da khoi phuc authorized_keys tu seed ben vung"
+  fi
+}
+
+ensure_hatch_hook() {
+  # Hatch CHAY hook theo definition JSON trong /home/hatch/hooks/definitions/.
+  # Script co trong /home/hatch/hooks/scripts/ ma KHONG co definition => KHONG BAO GIO chay.
+  local defs="/home/hatch/hooks/definitions"
+  local def="$defs/muse-platform-boot.json"
+  mkdir -p "$defs" /home/hatch/hooks/scripts
+  if [ -f "$def" ]; then
+    say "hatch hook definition: da co ($def)"
+    return 0
+  fi
+  local now_ms
+  now_ms=$(($(date +%s) * 1000))
+  cat > "$def" <<EOF
+{
+  "version": 1,
+  "id": "muse-platform-boot",
+  "enabled": true,
+  "script_path": "~/hooks/scripts/muse-platform-boot.sh",
+  "poll_interval_secs": 15,
+  "script_timeout_secs": 60,
+  "delivery": { "surface": "main" },
+  "presentation_locale": "en-US",
+  "prompt": "Pure-script boot/self-heal hook for muse-platform. Always exits silently; never wakes an LLM worker.",
+  "created_at_ms": $now_ms,
+  "updated_at_ms": $now_ms
+}
+EOF
+  say "hatch hook definition: da tao moi ($def)"
 }
 
 ensure_persistence() {
@@ -280,13 +320,25 @@ ensure_persistence() {
     [ -f "$cand" ] && { hook="$cand"; break; }
   done
   if [ -z "$hook" ]; then
-    warn "khong tim thay hatch boot hook -> dung systemd fallback"
-    PERSISTENCE="none"
-    return
+    # container moi: tao script + DANG KY hook (khong co definition thi khong chay)
+    hook="/home/hatch/hooks/scripts/muse-platform-boot.sh"
+    if [ ! -f "$hook" ]; then
+      cat > "$hook" <<'HOOK_EOF'
+#!/usr/bin/env bash
+# muse-platform-boot.sh - boot/self-heal hook (muse-bridge)
+# Script nao duoc Hatch GOI bang definition trong /home/hatch/hooks/definitions/.
+# Phai ket thuc bang HATCH_HOOK_RESULT decision=silent de KHONG day agent LLM.
+set -euo pipefail
+HOOK_EOF
+      chmod +x "$hook"
+    fi
+    ensure_hatch_hook
+    warn "da tao hook moi + dang ky definition"
   fi
-  if grep -q "muse-bridge watchdog v4" "$hook"; then
+  ensure_hatch_hook
+  if grep -q "muse-bridge watchdog ok" "$hook"; then
     PERSISTENCE="hatch-hook(15s)"
-    say "watchdog v4: da co trong $hook"
+    say "watchdog: da co ban moi nhat trong $hook"
     return
   fi
   say "inject/nang cap watchdog vao $hook"

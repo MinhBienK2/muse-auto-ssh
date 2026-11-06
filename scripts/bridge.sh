@@ -30,6 +30,7 @@ case "${1:-}" in
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;
   repair)    shift; bash "$LOCAL_SIDE" repair "$@" ;;
+  reprovision) shift; bash "$LOCAL_SIDE" reprovision "$@" ;;
   arm)       shift; bash "$LOCAL_SIDE" arm "$@" ;;
   status)    shift; bash "$LOCAL_SIDE" status "$@" ;;
   inbox)     shift; bash "$LOCAL_SIDE" inbox "$@" ;;

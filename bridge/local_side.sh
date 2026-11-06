@@ -447,6 +447,9 @@ cmd_daemon() {
         if ! host_reachable "$p"; then
           say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
           HOST="$id" cmd_repair >>"$log" 2>&1 || true
+        elif ! muse_bus_present "$p"; then
+          say "auto-reprovision: host '$id' (port $p) da refresh, bus bi mat -> provision lai"
+          HOST="$id" cmd_reprovision >>"$log" 2>&1 || true
         fi
       done
     done ) &
@@ -603,6 +606,30 @@ cmd_onboard() {
   python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port"
 }
 
+muse_bus_present() {
+  local port="$1"
+  ssh_host "$port" 'test -f /root/.muse-bridge/bridge.py && test -f /root/.muse-bridge/config.json' >/dev/null 2>&1
+}
+
+cmd_reprovision() {
+  parse_flags "$@"
+  require_host
+  local port; port="$(host_peer_port "$HOST")"
+  if ! host_reachable "$port"; then
+    warn "host '$HOST' khong phan hoi -> can repair (danh thuc container) truoc"
+    return 1
+  fi
+  if muse_bus_present "$port"; then
+    say "bus tren host '$HOST' da co -> khong can provision lai"
+    return 0
+  fi
+  say "bus tren host '$HOST' BI MAT (container vua refresh) -> provision lai..."
+  muse_provision "$port" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
+  bus_py pull >/dev/null 2>&1 || true
+  bus_py sync >/dev/null 2>&1 || true
+  cmd_status
+}
+
 # ------------------------------------------------------------------ repair (auto-wake)
 cmd_repair() {
   parse_flags "$@"
@@ -628,7 +655,13 @@ cmd_repair() {
   mkdir -p "$dir"
   local msg="$dir/repair.txt"
   printf '%s\n' \
-    "Kênh SSH từ container của bạn sang máy tôi đang chết (cổng $port). Bạn hãy mở lại reverse tunnel cổng $port bằng đúng lệnh bạn đã dùng lần trước (nếu bị mất thì dùng lại: ssh -N -R $port:127.0.0.1:22 với ProxyCommand qua hatch-egress-proxy, kèm -i /home/hatch/.ssh/id_ed25519), chạy nền bằng nohup, rồi báo tôi kết quả." > "$msg"
+    "Kênh SSH từ container của bạn sang máy tôi đang chết (cổng $port)." \
+    "" \
+    "Nếu máy tôi báo Permission denied thì /root/.ssh/authorized_keys của bạn đã mất (container vừa refresh - /root là overlay tạm, /home/hatch mới bền vững). Chạy:" \
+    "" \
+    "mkdir -p /root/.ssh /home/hatch/.ssh && ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /home/hatch/.ssh/authorized_keys" \
+    "" \
+    "Sau đó mở lại reverse tunnel cổng $port (dùng script /home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel-$port.sh chạy nền bằng nohup - script này tự nối lại mỗi 10s và tự restart sshd nếu treo), rồi báo tôi kết quả." > "$msg"
 
   local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|$port")"
   echo "$out" >> "$dir/repair.log" 2>/dev/null || true
@@ -679,7 +712,7 @@ cmd_doctor() {
 # ------------------------------------------------------------------ dispatch
 case "${1:-}" in
   arm)       shift; cmd_arm "$@" ;;
-  status)    shift; cmd_status "${REST[@]}" ;;
+  status)    shift; cmd_status "$@" ;;
   inbox)     shift; cmd_inbox "$@" ;;
   send)      shift; cmd_send "$@" ;;
   ack)       shift; cmd_ack "$@" ;;
@@ -694,6 +727,7 @@ case "${1:-}" in
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
   repair)   shift; cmd_repair "$@" ;;
+  reprovision) shift; cmd_reprovision "$@" ;;
   provision) shift; parse_flags "$@"; require_host
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true

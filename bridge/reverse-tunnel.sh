@@ -35,6 +35,22 @@ sshd_alive() {
   timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH
 }
 
+ensure_authorized_keys() {
+  # Container refresh -> /root (overlay) bi xoa. Khoi phuc symlink ->
+  # /home/hatch/.ssh/authorized_keys (vung ben vung) de may ngoai vao duoc.
+  mkdir -p /root/.ssh /home/hatch/.ssh
+  chmod 700 /root/.ssh /home/hatch/.ssh 2>/dev/null || true
+  if [ -f /home/hatch/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then
+    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+    log "da khoi phuc /root/.ssh/authorized_keys -> /home/hatch/.ssh/authorized_keys"
+  fi
+  if [ -L /root/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then
+    log "symlink authorized_keys bi hong - tao lai"
+    rm -f /root/.ssh/authorized_keys
+    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+  fi
+}
+
 ensure_sshd() {
   mkdir -p /run/sshd /var/run/sshd
   if ! pgrep -x sshd >/dev/null 2>&1; then
@@ -54,6 +70,7 @@ ensure_sshd() {
 log "loop start -> ${LOCAL_USER}@${LOCAL_IP}:${REMOTE_PORT} (key $KEY_PATH)"
 
 while true; do
+  ensure_authorized_keys
   ensure_sshd
   ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
     -o "ProxyCommand=${PROXY_PATH} %h %p" \

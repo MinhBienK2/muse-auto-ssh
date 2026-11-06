@@ -37,6 +37,24 @@ và bạn cũng đã yêu cầu người dùng *nói từng bước bằng lời
 
 ---
 
+## 2.1. Quy tắc bền vững (quan trọng!)
+
+Container của bạn có **hai vùng**:
+
+| Vùng | Tính chất | Đặt gì ở đây |
+|---|---|---|
+| `/root` | **overlay tạm — MẤT HOÀN TOÀN khi container refresh/recycle** | chỉ symlink |
+| `/home/hatch` | **btrfs — BỀN VỮNG** | key, script, config, bus, hook |
+
+Vì vậy:
+- key của bạn: `/home/hatch/.ssh/id_ed25519` → `ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys`
+  (sshd chạy user root nên nó đọc `/root/.ssh/authorized_keys`)
+- bus + cấu hình: `/home/hatch/.muse-bridge` → `ln -sfn /home/hatch/.muse-bridge /root/.muse-bridge`
+- script tunnel + watchdog + unit systemd: `/home/hatch/workspace/muse-platform-setup/…`
+
+Sau mỗi lần container refresh, chỉ cần phần ở `/home/hatch` là còn; phần `/root` sẽ được
+watchdog tự tạo lại (symlink) và máy ngoài sẽ tự đẩy lại bus.
+
 ## 3. Lần chạy đầu tiên (prompt dán một lần)
 
 Prompt do máy ngoài sinh (`bridge.sh prompt --host <id>`), gồm 4 bước:

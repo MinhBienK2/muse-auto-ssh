@@ -212,14 +212,22 @@ EOF
   else
     mv -f "$tmp" "$unit"
   fi
+  # luu template o vung BEN VUNG (/home/hatch) de watchdog tu cai lai sau khi refresh
+  local tpl="$BASE/tunnel/muse-reverse-tunnel-$LOCAL_PORT.service.template"
+  if ! cmp -s "$unit" "$tpl"; then
+    cp -f "$unit" "$tpl" 2>/dev/null || true
+  fi
   systemctl daemon-reload >/dev/null 2>&1
   systemctl enable "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1
   # CHI MOT supervisor: stop service -> tat moi loop cu -> start lai service
   systemctl stop "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1 || true
-  # don dep unit generic cu (neu co) de khong tranh cong
-  if [ "$LOCAL_PORT" != "2222" ] && systemctl list-unit-files 2>/dev/null | grep -q "^muse-reverse-tunnel.service"; then
+  # don dep unit generic cu (neu co) de khong tranh cong.
+  # Unit generic + unit per-port cung chay 1 tunnel -> 2 supervisor tranh
+  # cung port "-R" -> "remote port forwarding failed" -> vong lap reconnect.
+  if systemctl list-unit-files 2>/dev/null | grep -q "^muse-reverse-tunnel.service"; then
     systemctl disable --now muse-reverse-tunnel.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/muse-reverse-tunnel.service
+    systemctl daemon-reload >/dev/null 2>&1
   fi
   pkill -f "[r]everse-tunnel-${LOCAL_PORT}.sh" >/dev/null 2>&1 || true
   pkill -f "[s]sh -N -R ${LOCAL_PORT}:" >/dev/null 2>&1 || true
@@ -234,6 +242,36 @@ EOF
   return 0
 }
 
+ensure_persistent_layout() {
+  # Container refresh -> /root (overlay) bi xoa; /home/hatch (btrfs) moi ben vung.
+  # => bus + authorized_keys phai nam o /home/hatch, /root chi la symlink.
+  local persistent="/home/hatch/.muse-bridge"
+  mkdir -p "$persistent" /home/hatch/.ssh
+  if [ ! -L "$STATE_DIR" ] && [ -d "$STATE_DIR" ] && [ "$STATE_DIR" != "$persistent" ]; then
+    cp -a "$STATE_DIR"/. "$persistent"/ 2>/dev/null || true
+    rm -rf "$STATE_DIR"
+    ln -sfn "$persistent" "$STATE_DIR"
+    say "bus chuyen sang vung ben vung: $persistent (symlink $STATE_DIR)"
+  elif [ ! -e "$STATE_DIR" ]; then
+    mkdir -p "$persistent"
+    ln -sfn "$persistent" "$STATE_DIR"
+  fi
+  # authorized_keys cua user root -> symlink sang /home/hatch/.ssh
+  mkdir -p /root/.ssh /home/hatch/.ssh
+  chmod 700 /root/.ssh /home/hatch/.ssh
+  if [ -f /root/.ssh/authorized_keys ] && [ ! -L /root/.ssh/authorized_keys ]; then
+    touch /home/hatch/.ssh/authorized_keys
+    cat /root/.ssh/authorized_keys >> /home/hatch/.ssh/authorized_keys
+    sort -u /home/hatch/.ssh/authorized_keys -o /home/hatch/.ssh/authorized_keys
+    rm -f /root/.ssh/authorized_keys
+    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+    say "authorized_keys -> symlink sang /home/hatch/.ssh/authorized_keys"
+  elif [ ! -e /root/.ssh/authorized_keys ] && [ -f /home/hatch/.ssh/authorized_keys ]; then
+    ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys
+    say "khoi phuc authorized_keys tu /home/hatch/.ssh"
+  fi
+}
+
 ensure_persistence() {
   local hook
   hook=""
@@ -246,9 +284,9 @@ ensure_persistence() {
     PERSISTENCE="none"
     return
   fi
-  if grep -q "muse-bridge watchdog v3" "$hook"; then
+  if grep -q "muse-bridge watchdog v4" "$hook"; then
     PERSISTENCE="hatch-hook(15s)"
-    say "watchdog v3: da co trong $hook"
+    say "watchdog v4: da co trong $hook"
     return
   fi
   say "inject/nang cap watchdog vao $hook"
@@ -332,6 +370,7 @@ cmd_setup() {
   ensure_proxy
   ensure_loop
   authorize_local_key
+  ensure_persistent_layout
   ensure_tunnel
   ensure_persistence
   ensure_systemd_unit || true

@@ -37,8 +37,19 @@ from datetime import datetime, timezone
 
 PROTOCOL_VERSION = 1
 MSG_TYPES = ["HELLO", "TASK", "QUESTION", "ANSWER", "STATUS", "REPORT", "NOTE", "BYE"]
-DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".muse-bridge", "config.json")
 SPOOL_SUBDIRS = ("inbox", "outbox", "read", "logs", "pending")
+
+
+def state_dir() -> str:
+    """Thu muc state cua bridge (config + hosts + spool).
+
+    Do ca hai ben dung cung mot bien: MUSE_BRIDGE_STATE. Mac dinh ~/.muse-bridge.
+    """
+    return expand(os.environ.get("MUSE_BRIDGE_STATE") or os.path.join("~", ".muse-bridge"))
+
+
+def default_config_path() -> str:
+    return os.path.join(state_dir(), "config.json")
 
 
 # --------------------------------------------------------------------------- utils
@@ -61,27 +72,27 @@ def die(msg: str, code: int = 2):
 
 
 def config_path(host: str | None = None, path: str | None = None) -> str:
-    """Thu muc config: ~/.muse-bridge/hosts/<id>.json cho tung Muse host."""
+    """Thu muc config: <state>/hosts/<id>.json cho tung Muse host."""
     if path:
         return expand(path)
+    hosts_dir = os.path.join(state_dir(), "hosts")
     if host:
-        return expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts", host + ".json"))
+        return expand(os.path.join(hosts_dir, host + ".json"))
     env = os.environ.get("MUSE_BRIDGE_CONFIG")
     if env:
         return expand(env)
     env_host = os.environ.get("MUSE_BRIDGE_HOST")
     if env_host:
-        return expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts", env_host + ".json"))
-    default = expand(DEFAULT_CONFIG_PATH)
+        return expand(os.path.join(hosts_dir, env_host + ".json"))
+    default = default_config_path()
     if os.path.isfile(default):
         return default
-    hosts_dir = expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts"))
     if os.path.isdir(hosts_dir):
         ids = sorted(n[:-5] for n in os.listdir(hosts_dir) if n.endswith(".json"))
         if len(ids) == 1:
             return os.path.join(hosts_dir, ids[0] + ".json")
         if ids:
-            marker = os.path.join(os.path.expanduser("~"), ".muse-bridge", "default-host")
+            marker = os.path.join(state_dir(), "default-host")
             if os.path.isfile(marker):
                 with open(marker, "r", encoding="utf-8") as fh:
                     want = fh.read().strip()
@@ -100,14 +111,14 @@ def load_config(path: str | None = None, host: str | None = None) -> dict:
     except Exception as exc:  # noqa: BLE001
         die("cannot parse %s: %s" % (path, exc))
     cfg["_config_path"] = path
-    cfg["spool"] = expand(cfg.get("spool") or os.path.join(os.path.expanduser("~"), ".muse-bridge"))
+    cfg["spool"] = expand(cfg.get("spool") or state_dir())
     peer = cfg.setdefault("peer", {})
     peer.setdefault("role", "peer")
     peer.setdefault("transport", "ssh")
     peer.setdefault("host", "127.0.0.1")
     peer.setdefault("port", 22)
     peer.setdefault("user", "root")
-    peer.setdefault("spool", os.path.join(expand(peer["spool"] if "spool" in peer else "~/.muse-bridge"), ""))
+    peer.setdefault("spool", os.path.join(expand(peer["spool"] if "spool" in peer else state_dir()), ""))
     peer["spool"] = expand(peer["spool"])
     peer.setdefault("ssh_opts", [])
     cfg.setdefault("id", os.path.splitext(os.path.basename(path))[0])

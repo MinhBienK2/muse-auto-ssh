@@ -11,11 +11,18 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/tunnel.conf"
+# Config rieng theo port: reverse-tunnel-<port>.sh -> tunnel-<port>.conf.
+# Neu khong co config theo port thi fallback ve tunnel.conf (the he).
+PORT="$(basename "${BASH_SOURCE[0]}" .sh | sed -n 's/^reverse-tunnel-\([0-9]\+\)$/\1/p')"
+CONFIG_FILE="$SCRIPT_DIR/tunnel-${PORT:-default}.conf"
+[ -f "$CONFIG_FILE" ] || CONFIG_FILE="$SCRIPT_DIR/tunnel.conf"
+# shellcheck source=/dev/null
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 
-LOCAL_USER="${LOCAL_USER:-minhbien}"
-LOCAL_IP="${LOCAL_IP:-100.120.205.53}"
+# LOCAL_IP / LOCAL_USER / REMOTE_PORT deu den tu tunnel-<port>.conf (sinh boi may ngoai).
+# Khong hard-code gia tri may cua mot nguoi cu the nao - may nao cung dung duoc.
+: "${LOCAL_IP:?thieu LOCAL_IP trong $CONFIG_FILE}"
+: "${LOCAL_USER:?thieu LOCAL_USER trong $CONFIG_FILE}"
 REMOTE_PORT="${REMOTE_PORT:-2222}"
 KEY_PATH="${KEY_PATH:-/home/hatch/.ssh/id_ed25519}"
 PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"

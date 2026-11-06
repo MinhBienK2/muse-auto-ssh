@@ -15,5 +15,8 @@ khảo và để đối chiếu với deployment đang chạy trên máy Muse.
 | `reverse-tunnel-g3.sh` | script loop do `muse_side.sh` sinh ra (`$BASE/tunnel/reverse-tunnel.sh`) |
 | `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh` |
 
+`templates/ts-socat-proxy.sh` là **symlink** tới `bridge/ts-socat-proxy.sh` (một nguồn duy nhất — sửa
+bản trong `bridge/`, đừng tạo bản thứ hai).
+
 Mailbox kiểu cũ (`~/muse-bridge/MUSE_STATUS.md`, `OUTER_TASKS.md`) **không còn dùng** — trao đổi
 giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `../PROTOCOL.md` mục 5–7.

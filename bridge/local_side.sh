@@ -26,6 +26,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BRIDGE_PY="$SCRIPT_DIR/bridge.py"
 MUSE_WEB="$SCRIPT_DIR/muse_web.py"
 STATE_DIR="${MUSE_BRIDGE_STATE:-$HOME/.muse-bridge}"
+export MUSE_BRIDGE_STATE="$STATE_DIR"
 HOSTS_DIR="$STATE_DIR/hosts"
 SPOOLS_DIR="$STATE_DIR/spools"
 REPO_HOSTS_DIR="${MUSE_BRIDGE_REPO_HOSTS:-$REPO_DIR/.muse-hosts}"
@@ -348,17 +349,37 @@ push_bundle() {
 
 cmd_arm() {
   parse_flags "$@"
-  require_host
-  say "=== ARM host '$HOST' ==="
-  local port; port="$(host_peer_port "$HOST")"
-  say "tailscale ip: $(detect_ts_ip) | port: $port"
+  # `arm` chuan bi MAY (sshd, key, bundle, TOFU hook) - khong can host truoc.
+  # Neu chua co host nao: van chuan bi xong phan may, roi bao buoc tiep theo.
+  local have_host=1
+  [ -n "$HOST" ] || HOST="$(default_host)"
+  if [ -z "$HOST" ] || [ ! -f "$(host_config "$HOST")" ]; then
+    have_host=0
+    HOST=""
+  fi
+
+  if [ "$have_host" = "1" ]; then
+    say "=== ARM host '$HOST' ==="
+    say "tailscale ip: $(detect_ts_ip) | port=$(host_peer_port "$HOST")"
+  else
+    say "=== ARM may ngoai (chua co Muse host nao) ==="
+    say "tailscale ip: $(detect_ts_ip)"
+  fi
+
   ensure_sshd
   ensure_key
   install_bundle_local
   install_authorizer
   install_sshd_hook
-  push_bundle "$port" || true
-  cmd_status
+
+  if [ "$have_host" = "1" ]; then
+    push_bundle "$(host_peer_port "$HOST")" || true
+    cmd_status
+  else
+    say "may da chuan bi xong. Tiep theo:"
+    say "  bash scripts/bridge.sh add-host --host <id>   # dang ky Muse host"
+    say "  bash scripts/bridge.sh onboard --host <id>   # dan prompt + noi ket noi"
+  fi
 }
 
 # ------------------------------------------------------------------ bus wrappers
@@ -526,8 +547,8 @@ cmd_onboard() {
   say "thread: ${thread:-unknown}"
 
   # --- 2) vong lap doi thoai: authorize key / tra loi / cho tunnel ---------
-  local i
-  for i in $(seq 1 8); do
+  local _i
+  for _i in $(seq 1 8); do
     if host_reachable "$port"; then
       say "KET NOI DUOC (port $port)"
       break
@@ -609,12 +630,12 @@ cmd_repair() {
   printf '%s\n' \
     "Kênh SSH từ container của bạn sang máy tôi đang chết (cổng $port). Bạn hãy mở lại reverse tunnel cổng $port bằng đúng lệnh bạn đã dùng lần trước (nếu bị mất thì dùng lại: ssh -N -R $port:127.0.0.1:22 với ProxyCommand qua hatch-egress-proxy, kèm -i /home/hatch/.ssh/id_ed25519), chạy nền bằng nohup, rồi báo tôi kết quả." > "$msg"
 
-  local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|2223|2222")"
+  local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|$port")"
   echo "$out" >> "$dir/repair.log" 2>/dev/null || true
 
   say "cho container phuc hoi (toi da 120s)..."
-  local i
-  for i in $(seq 1 24); do
+  local _i
+  for _i in $(seq 1 24); do
     sleep 5
     if host_reachable "$port"; then
       say "DA PHAI HOI: kenh song lai (port $port)"
@@ -647,7 +668,10 @@ cmd_doctor() {
     printf '%-10s port=%-6s ' "$id" "$port"
     if ss -tln 2>/dev/null | grep -q ":$port\b"; then printf 'forward=LISTEN '; else printf 'forward=DOWN  '; fi
     if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi
-    local inbox; inbox="$(ls "$STATE_DIR/spools/$id/inbox" 2>/dev/null | grep -c '\.json$' || true)"
+    local inbox=0 f
+    for f in "$STATE_DIR/spools/$id/inbox"/*.json; do
+      [ -f "$f" ] && inbox=$((inbox + 1))
+    done
     printf 'inbox=%-3s state=%s\n' "$inbox" "${state:-unknown}"
   done
 }

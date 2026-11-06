@@ -32,7 +32,7 @@ check() { if [ "$2" = "0" ]; then echo "  ok   - $1"; else echo "  FAIL - $1"; f
 python3 "$INJECT" "$HOOK" "/home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel.sh" \
   "/home/hatch/workspace/muse-platform-setup/keys/muse-agent-ed25519" \
   "/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh" \
-  "minhbien" "100.120.205.53" >/dev/null
+  "testuser" "100.64.0.1" >/dev/null
 check "inject chay khong loi" $?
 
 grep -q "muse-bridge watchdog v3" "$HOOK"
@@ -48,7 +48,7 @@ cp "$HOOK" "$TMP/hook.after1"
 python3 "$INJECT" "$HOOK" "/home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel.sh" \
   "/home/hatch/workspace/muse-platform-setup/keys/muse-agent-ed25519" \
   "/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh" \
-  "minhbien" "100.120.205.53" >/dev/null
+  "testuser" "100.64.0.1" >/dev/null
 diff -q "$TMP/hook.after1" "$HOOK" >/dev/null
 check "inject lai khong doi file (idempotent)" $?
 

@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-#Sua duong dan repo neu ban move repo:
-WorkingDirectory=/home/minhbien/Documents/muse
-ExecStart=/bin/bash /home/minhbien/Documents/muse/scripts/bridge.sh daemon 3
+#Sua duong dan repo neu ban move repo (xem LOCAL_AGENT.md muc 7.1)
+WorkingDirectory=%h/Documents/muse
+ExecStart=/bin/bash %h/Documents/muse/scripts/bridge.sh daemon 3
 Restart=always
 RestartSec=10
 

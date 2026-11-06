@@ -31,7 +31,7 @@ skip() {  # skip <ten> <ly-do>
   fi
 }
 
-for t in bus_selftest.sh watchdog_upgrade_test.sh muse_side_test.sh hosts_test.sh selfheal_test.sh; do
+for t in bus_selftest.sh watchdog_upgrade_test.sh muse_side_test.sh hosts_test.sh; do
   [ -f "$REPO_DIR/tests/$t" ] || continue
   echo "=============================================================="
   echo "== $t"
@@ -40,12 +40,19 @@ for t in bus_selftest.sh watchdog_upgrade_test.sh muse_side_test.sh hosts_test.s
   echo
 done
 
+# tests/selfheal_test.sh la test THAT (can container Muse that + can SSH that)
+# -> khong chay trong bo offline nay. Chay tay: bash tests/selfheal_test.sh --host <id>
+
 echo "== check_prompt_sync.sh"
 if [ "$STRICT" = "1" ]; then
   bash "$REPO_DIR/scripts/check_prompt_sync.sh" --strict || fails=$((fails + 1))
 else
   bash "$REPO_DIR/scripts/check_prompt_sync.sh" || fails=$((fails + 1))
 fi
+echo
+
+echo "== check_hygiene.sh"
+bash "$REPO_DIR/scripts/check_hygiene.sh" || fails=$((fails + 1))
 echo
 
 echo "== bash -n tat ca script shell"

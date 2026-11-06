@@ -15,8 +15,13 @@ Bạn là **Agent Ngoài**: AI agent chạy trên máy tính cá nhân của ng�
 3. **Prompt cho Muse phải ngắn và bằng lời người dùng.** Bộ lọc an toàn của nền tảng Muse đã chặn
    nội dung dạng "dán khối script lớn"; Agent Muse cũng yêu cầu người dùng nói từng bước.
    Vì vậy `MUSE_PROMPT.md` **không chứa mã nguồn** — mã do bạn đẩy vào container sau khi kênh thông.
+   Sửa prompt thì sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py`
+   (file `MUSE_PROMPT.md` bị gitignore vì chứa host/user/pubkey của máy bạn).
 4. **Mỗi lần trả lời người dùng, kiểm tra hộp thư trước** (mục 4).
 5. **Trả lời đúng hạn**: tin `TASK`/`QUESTION` phải có tin trả lời kèm `reply_to`.
+6. **Không hard-code giá trị của máy này vào mã.** IP Tailscale, username, path → lấy từ
+   `.muse-hosts/<id>.json` hoặc auto-detect (`tailscale ip -4`, `id -un`). Repo này được kéo về máy
+   người khác dùng.
 
 ---
 
@@ -30,6 +35,9 @@ bash scripts/bridge.sh arm
 `arm` là idempotent — chạy lại không sao. Nó: bật `sshd`, phát hiện IP Tailscale, tạo key,
 cài bus vào `~/.muse-bridge/`, cài **TOFU hook** (mọi máy Muse mới tự được nhận — cần `sudo` 1 lần),
 đẩy bundle lên Muse nếu kênh đang sống.
+
+Nếu chưa đăng ký Muse host nào, `arm` vẫn chuẩn bị xong phần máy rồi báo bước tiếp theo
+(`add-host` → `onboard`). Nếu đã có host, `arm` đẩy bundle và in trạng thái luôn.
 
 Nếu bước TOFU báo thiếu quyền root, báo người dùng đúng 1 dòng:
 
@@ -129,10 +137,12 @@ bash scripts/bridge.sh status --host <id>
 | Tình huống | Xử lý |
 |---|---|
 | `PEER_STATE=DOWN` | Tunnel chết. Watchdog phía Muse tự mở lại ~10s. Nếu lâu hơn: `sudo systemctl status ssh`. |
-| `PENDING>0` | Tin chưa gửi được → `bash scripts/bridge.sh sync --host <id>`. |
+| `PENDING>0` | Tin chưa gửi được → `bash scripts/bridge.sh sync --host <id>`. Nếu chỉ còn 1 chiều thì `pull`. |
+| Container bị đóng băng (không tiến trình nào chạy) | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức. |
 | Muốn cập nhật mã cho Muse | `bash scripts/bridge.sh push --host <id>`. |
 | Muse hiện hộp "Approval required" | Bấm Allow (script `muse_web.py approve` làm tự động). |
 | Muse nói "không qua kiểm tra an toàn" | Đừng dán lại khối script lớn. Gửi lại bằng lời, từng bước ngắn (mục 3.2). |
+| Không rõ đang ở đâu | `bash scripts/bridge.sh doctor` — sshd, TOFU hook, từng host. |
 
 ### 7.1. Chạy nền (tuỳ chọn, khuyến nghị)
 
@@ -140,11 +150,14 @@ bash scripts/bridge.sh status --host <id>
 bash scripts/bridge.sh daemon --host <id>
 ```
 
-Hoặc cài như service của user:
+Hoặc cài như service của user (file unit dùng `%h` = thư mục home, nên **phải sửa đường dẫn repo**
+nếu repo của bạn không nằm ở `~/Documents/muse`):
 
 ```bash
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p ~/.config/systemd/user
-cp bridge/muse-bridge-daemon.service ~/.config/systemd/user/
+sed "s#%h/Documents/muse#$REPO#g" bridge/muse-bridge-daemon.service \
+  > ~/.config/systemd/user/muse-bridge-daemon.service
 systemctl --user daemon-reload
 systemctl --user enable --now muse-bridge-daemon
 ```
@@ -154,8 +167,20 @@ systemctl --user enable --now muse-bridge-daemon
 ## 8. Kiểm tra nhanh (tự test trước khi bàn giao)
 
 ```bash
-bash scripts/bridge.sh selftest     # bus, watchdog, bundle, đăng ký host — không cần mạng
+bash scripts/bridge.sh selftest     # bus, watchdog, bundle, đăng ký host, prompt, lint — không cần mạng
 bash scripts/bridge.sh status       # trạng thái kênh
 ```
 
 `selftest` phải in `ALL TESTS: PASS`; `status` phải in `PEER_STATE=OK` khi tunnel đang sống.
+
+Nếu `selftest` báo thiếu `shellcheck` / `ruff`, cài rồi chạy lại:
+
+```bash
+pip install --user ruff shellcheck-py
+```
+
+Test **thật** (cần container Muse đang chạy — không nằm trong `selftest`):
+
+```bash
+bash tests/selfheal_test.sh --host <id>    # giết tunnel, xem có tự lên lại không
+```

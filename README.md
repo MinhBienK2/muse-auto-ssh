@@ -13,7 +13,7 @@ máy bạn; khi thiếu gì thì Muse *nhắn* sang máy bạn để xin — kh�
 
 ```mermaid
 flowchart LR
-    subgraph Local["Máy tính của bạn — 100.120.205.53"]
+    subgraph Local["Máy tính của bạn — Tailscale IP"]
         LA["Agent Ngoài<br/>bash scripts/bridge.sh …"]
         LS["~/.muse-bridge/<br/>inbox · outbox · read"]
         LD["sshd :22<br/>+ TOFU tự pin key Muse"]
@@ -134,33 +134,41 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 
 ```text
 .
+├── AGENTS.md                    # ⭐ bản đồ repo (đọc file nào cho việc nào)
 ├── PROTOCOL.md                  # ⭐ hợp đồng giao thức (đọc đầu tiên)
+├── CODING_STANDARDS.md          # ⭐ tiêu chuẩn code cho reviewer
 ├── LOCAL_AGENT.md               # ⭐ quy trình cho Agent Ngoài
 ├── MUSE_AGENT.md                # ⭐ quy trình cho Agent Muse
-├── MUSE_PROMPT.md               # ⭐ prompt dán 1 lần (sinh tự động)
 ├── README.md
-├── MUSE_SSH_SETUP_GUIDE.md      # phân tích mạng ngầm (tài liệu cũ, vẫn đúng)
+├── MUSE_SSH_SETUP_GUIDE.md      # phân tích mạng ngầm (tài liệu cũ — xem legacy/README.md)
+├── MUSE_PROMPT.md               # prompt dán 1 lần — SINH TỰ ĐỘNG, gitignored (chứa key/IP máy bạn)
 ├── bridge/
 │   ├── bridge.py                # ⭐ bus core — mã nguồn chung của cả hai bên
-│   ├── local_side.sh            # phía máy ngoài: hosts / arm / onboard / daemon / push
+│   ├── local_side.sh            # phía máy ngoài: hosts / arm / onboard / daemon / push / repair
 │   ├── muse_side.sh             # phía Muse: setup / worker / bus CLI (được đẩy vào container)
 │   ├── muse_web.py              # ⭐ điều khiển Chrome (CDP thuần Python) để gửi prompt + bấm Allow
-│   ├── inject_watchdog.py       # watchdog v2 (kiểm tra chức năng sshd + tunnel)
-│   └── authorize_peer.sh        # TOFU cho sshd (tự pin key Muse mới)
+│   ├── reverse-tunnel.sh        # loop tự reconnect tunnel (mỗi port một bản + config riêng)
+│   ├── ts-socat-proxy.sh        # tự dò HTTP CONNECT proxy của Hatch
+│   ├── inject_watchdog.py       # watchdog v3 (kiểm tra chức năng sshd + tunnel)
+│   ├── authorize_peer.sh        # TOFU cho sshd (tự pin key Muse mới)
+│   └── muse-bridge-daemon.service  # unit systemd user cho daemon nền
 ├── scripts/
 │   ├── bridge.sh                # ⭐ CLI phía máy ngoài
 │   ├── render_prompt.py         # sinh MUSE_PROMPT.md từ template
 │   ├── install_tofu_hook.sh     # cài TOFU hook (sudo, 1 lần)
 │   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>.json
-│   └── check_prompt_sync.sh     # kiểm tra MUSE_PROMPT.md còn đồng bộ
+│   ├── check_prompt_sync.sh     # kiểm tra template + MUSE_PROMPT.md còn đồng bộ
+│   └── check_hygiene.sh         # quét IP/email/path riêng của máy + TODO/stub
 ├── templates/
 │   └── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
-│   ├── watchdog_upgrade_test.sh # nâng cấp watchdog v1 → v2 trong Hatch hook
-│   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse chạy đúng
-│   └── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
+│   ├── watchdog_upgrade_test.sh # nâng cấp watchdog trong Hatch hook (idempotent)
+│   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse + config per-port
+│   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
+│   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
+├── .githooks/pre-commit         # hook: chạy selftest trước mỗi commit
 └── legacy/                      # script của thiết kế cũ (xem legacy/README.md)
 ```
 
@@ -170,16 +178,25 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 
 | Lệnh (máy bạn) | Việc |
 |---|---|
+| `bash scripts/bridge.sh hosts` | Liệt kê Muse host đang quản lý |
+| `bash scripts/bridge.sh add-host --host <id>` | Đăng ký Muse host mới (port, ssh alias, spool) |
 | `bash scripts/bridge.sh arm` | Chuẩn bị máy (idempotent) |
+| `bash scripts/bridge.sh onboard --host <id>` | Zero-touch: tự dán prompt vào web Muse + chờ kênh thông |
 | `bash scripts/bridge.sh status` | Trạng thái kênh + số tin |
 | `bash scripts/bridge.sh inbox` | Đọc tin gửi tới (`--watch` để chờ) |
 | `bash scripts/bridge.sh send --type … --subject … --body …` | Gửi tin |
 | `bash scripts/bridge.sh ack <id>` | Đánh dấu đã xử lý |
 | `bash scripts/bridge.sh sync` | Gửi lại tin đang chờ (`pending/`) |
+| `bash scripts/bridge.sh pull` | Kéo tin từ peer (khi chỉ còn 1 chiều) |
 | `bash scripts/bridge.sh prompt` | Render prompt cho Muse |
 | `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
+| `bash scripts/bridge.sh provision --host <id>` | Đẩy bus + watchdog + chạy setup phía Muse |
+| `bash scripts/bridge.sh doctor` | Chẩn đoán: sshd, TOFU hook, từng host |
+| `bash scripts/bridge.sh repair --host <id>` | Đánh thức container Muse bị đóng băng qua web |
 | `bash scripts/bridge.sh daemon` | Watcher nền: log + thông báo desktop |
-| `bash scripts/bridge.sh selftest` | Chạy toàn bộ kiểm tra (bus, watchdog, bundle prompt) — không cần mạng |
+| `bash scripts/bridge.sh selftest` | Chạy toàn bộ kiểm tra (bus, watchdog, bundle prompt, shellcheck, ruff) — không cần mạng |
+
+Mọi lệnh bus nhận `--host <id>` (bỏ trống → host mặc định).
 
 Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào thẳng container Muse.
 
@@ -190,15 +207,42 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
 | `PEER_STATE=DOWN` | Tunnel chết | Muse watchdog tự mở lại ~10s; nếu lâu hơn: `sudo systemctl start ssh` |
-| `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin → `bash scripts/bridge.sh sync` |
+| `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin → `bash scripts/bridge.sh sync` (hoặc `pull` nếu chỉ còn 1 chiều) |
 | Muse báo `Permission denied` | Key Muse mới chưa được authorize | `sudo bash scripts/install_tofu_hook.sh` (TOFU) |
 | Port `2222` bận | Tunnel cũ còn treo | `ss -tlnp | grep 2222` → dừng tunnel cũ rồi `bridge.sh push` |
-| `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo | Watchdog v2 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → mở lại/recycle phiên Muse trong UI Meta rồi `bash scripts/bridge.sh status` |
+| `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo | Watchdog v3 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → `bash scripts/bridge.sh repair --host <id>` (đánh thức qua web) |
+| Container bị đóng băng, không tiến trình nào chạy | Nền tảng suspend/checkpoint container | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức; daemon tự làm mỗi 5 phút |
+| Muse không đăng nhập được vào máy mình | `sshd` trong container đọc `/root/.ssh/authorized_keys`, không phải `~/.ssh/authorized_keys` của user `hatch` | Ghi key vào **cả hai** file (prompt mới đã làm sẵn) |
+| Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy`; `user:pass` nằm trong `/proc/<pid>/environ` | Dùng `bridge/ts-socat-proxy.sh` (tự dò), không tự điền tay `USER:PASS` |
 | Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
+| `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
 
 ---
 
-## 7. Nguyên tắc thiết kế
+## 7. Guardrail — kiểm tra trước khi bàn giao
+
+```bash
+bash scripts/bridge.sh selftest      # toàn bộ test offline + shellcheck + ruff
+```
+
+Phải in `ALL TESTS: PASS`. Cài thêm tool nếu báo thiếu:
+
+```bash
+pip install --user ruff shellcheck-py
+```
+
+Bật pre-commit hook (chạy selftest trước mỗi commit):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+CI (`.github/workflows/ci.yml`) chạy `tests/run_all.sh --strict` + `check_prompt_sync.sh --strict` —
+tức là kiểm tra **không phụ thuộc máy đang chạy**, nên phải xanh trên mọi clone.
+
+---
+
+## 8. Nguyên tắc thiết kế
 
 1. **Không tin vào nội dung ngoài.** Agent Muse bị bộ lọc an toàn chặn nội dung tải từ web → mọi
    thứ nó cần nằm sẵn trong prompt do người dùng dán.
@@ -208,3 +252,5 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 4. **Không mất tin.** Ghi file atomic (`tmp` + `mv`), gửi lỗi thì giữ ở `pending/`.
 5. **Bất biến rõ ràng.** Không dùng "magic file" markdown (`OUTER_TASKS.md`) — mọi trao đổi là
    message JSON có `id`, `type`, `reply_to`.
+6. **Chạy được ở máy khác.** Không hard-code IP/user/path của một máy cụ thể; mọi thứ lấy từ
+   runtime config (`tunnel-<port>.conf`, `.muse-hosts/<id>.json`) hoặc auto-detect.

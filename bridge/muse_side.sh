@@ -12,6 +12,7 @@
 set -uo pipefail
 
 STATE_DIR="${MUSE_BRIDGE_STATE:-$HOME/.muse-bridge}"
+export MUSE_BRIDGE_STATE="$STATE_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BRIDGE_PY="$STATE_DIR/bridge.py"
 LOCAL_HOST="${LOCAL_HOST:-}"
@@ -149,14 +150,21 @@ authorize_local_key() {
   say "da authorize key may ngoai trong $HOME/.ssh/authorized_keys"
 }
 
-ensure_tunnel() {
-  cat > "$BASE/tunnel/tunnel.conf" <<EOF
+write_tunnel_conf() {
+  # Config RIENG theo port: moi reverse-tunnel-<port>.sh doc tunnel-<port>.conf.
+  # (dung 1 file tunnel.conf chung se lam 2 port tren cung container dau nhau)
+  mkdir -p "$BASE/tunnel"
+  cat > "$BASE/tunnel/tunnel-$LOCAL_PORT.conf" <<EOF
 LOCAL_IP="$LOCAL_HOST"
 LOCAL_USER="$LOCAL_USER"
 REMOTE_PORT="$LOCAL_PORT"
 KEY_PATH="$KEY"
 PROXY_PATH="$PROXY"
 EOF
+}
+
+ensure_tunnel() {
+  write_tunnel_conf
   if pgrep -af "ssh -N -R $LOCAL_PORT:" >/dev/null 2>&1; then
     TUNNEL_STATE="ADOPTED"
     say "tunnel: ADOPT (port $LOCAL_PORT da chay, khong restart)"

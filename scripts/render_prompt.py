@@ -8,7 +8,7 @@ khi kenh thong - nen prompt khong chua code, tranh bom loc an toan cua Agent Mus
 Usage:
     python3 scripts/render_prompt.py                # -> MUSE_PROMPT.md
     python3 scripts/render_prompt.py --stdout
-    python3 scripts/render_prompt.py --host 100.120.205.53 --user minhbien --port 2223
+    python3 scripts/render_prompt.py --host <TAILSCALE_IP> --user <USER> --port 2223
 """
 
 from __future__ import annotations

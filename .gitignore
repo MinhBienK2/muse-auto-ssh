@@ -12,6 +12,12 @@ id_ed25519
 /tmp/
 *.swp
 *.bak
+__pycache__/
+*.pyc
 
 # Thong tin ket noi tung Muse host (chi tren may nay - KHONG push)
 .muse-hosts/
+
+# MUSE_PROMPT.md la ARTIFACT RENDER (chua host/user/pubkey cua may that) -> KHONG commit.
+# Sinh lai bang: python3 scripts/render_prompt.py
+MUSE_PROMPT.md

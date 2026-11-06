@@ -171,6 +171,16 @@ def cdp_alive(port: int) -> bool:
         return False
 
 
+def attach_page(port: int, thread_url: str | None = None) -> dict:
+    """Chon tab phu hop: uu tien tab dang mo dung thread, neu khong thi dieu huong vao."""
+    if thread_url:
+        key = thread_url.rstrip("/").split("/")[-1]
+        for t in http_json("http://127.0.0.1:%d/json/list" % port, timeout=5):
+            if t.get("type") == "page" and t.get("webSocketDebuggerUrl") and key in (t.get("url") or ""):
+                return t
+    return find_page(port, thread_url)
+
+
 def find_page(port: int, prefer_url: str | None = None) -> dict:
     tabs = http_json("http://127.0.0.1:%d/json/list" % port, timeout=5)
     pages = [t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
@@ -472,7 +482,7 @@ def cmd_send(args) -> int:
 def cmd_say(args) -> int:
     """Gui mot tin nhan ngan vao thread hien tai (dung cho vong lap doi thoai)."""
     ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
-    page = find_page(args.cdp_port)
+    page = attach_page(args.cdp_port, args.thread)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
         if args.thread:
@@ -507,10 +517,29 @@ def cmd_say(args) -> int:
 
 def cmd_reply(args) -> int:
     ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
-    page = find_page(args.cdp_port)
+    page = attach_page(args.cdp_port, args.thread)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
-        text = wait_for(cdp, args.wait_for, args.timeout) if args.wait_for else page_text(cdp)
+        if args.thread:
+            cdp.call("Page.enable")
+            cdp.call("Page.navigate", {"url": args.thread})
+            for _ in range(40):
+                time.sleep(0.5)
+                if cdp.evaluate("document.readyState") in ("interactive", "complete"):
+                    break
+            time.sleep(2)
+        if args.wait_for:
+            deadline = time.time() + args.timeout
+            text = ""
+            while time.time() < deadline:
+                approve(cdp, args.approve_mode, 3)
+                text = page_text(cdp)
+                if re.search(args.wait_for, text):
+                    break
+                time.sleep(3)
+        else:
+            approve(cdp, args.approve_mode, 3)
+            text = page_text(cdp)
         if args.out:
             with open(args.out, "w", encoding="utf-8") as fh:
                 fh.write(text)
@@ -547,14 +576,16 @@ def main() -> int:
     say.add_argument("--wait-for", default="")
     say.add_argument("--timeout", type=float, default=120)
 
-    ap = sub.add_parser("approve")
-    ap.add_argument("--mode", default="once", choices=["once", "always", "deny"])
-    ap.add_argument("--rounds", type=int, default=6)
+    approve_p = sub.add_parser("approve")
+    approve_p.add_argument("--mode", default="once", choices=["once", "always", "deny"])
+    approve_p.add_argument("--rounds", type=int, default=6)
 
     r = sub.add_parser("reply")
     r.add_argument("--wait-for", default="")
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--out", default="")
+    r.add_argument("--approve-mode", default="once", choices=["once", "always", "deny"])
+    r.add_argument("--thread", default="", help="mo thread cu the truoc khi doc")
 
     args = ap.parse_args()
     try:

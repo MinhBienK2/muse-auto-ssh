@@ -43,7 +43,9 @@ LABEL=""
 KEY=""
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-600}"
 
+REST=()
 parse_flags() {
+  REST=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --host)    HOST="$2"; shift 2 ;;
@@ -51,7 +53,7 @@ parse_flags() {
       --label)   LABEL="$2"; shift 2 ;;
       --key)     KEY="$2"; shift 2 ;;
       --timeout) WAIT_TIMEOUT="$2"; shift 2 ;;
-      *) shift ;;
+      *) REST+=("$1"); shift ;;
     esac
   done
 }
@@ -350,31 +352,34 @@ bus_py() { python3 "$STATE_DIR/bridge.py" --host "$HOST" "$@"; }
 cmd_status() {
   parse_flags "$@"
   require_host
-  bus_py status "$@"
+  bus_py status "${REST[@]}"
+  local rc=$?
+  python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$(host_peer_port "$HOST")" >/dev/null 2>&1 || true
+  return $rc
 }
 
 cmd_inbox() {
   parse_flags "$@"
   require_host
-  bus_py inbox "$@"
+  bus_py inbox "${REST[@]}"
 }
 
 cmd_send() {
   parse_flags "$@"
   require_host
-  bus_py send "$@"
+  bus_py send "${REST[@]}"
 }
 
 cmd_ack() {
   parse_flags "$@"
   require_host
-  bus_py ack "$@"
+  bus_py ack "${REST[@]}"
 }
 
 cmd_sync() {
   parse_flags "$@"
   require_host
-  bus_py sync "$@"
+  bus_py sync "${REST[@]}"
 }
 
 cmd_daemon() {
@@ -534,7 +539,7 @@ cmd_onboard() {
 # ------------------------------------------------------------------ dispatch
 case "${1:-}" in
   arm)       shift; cmd_arm "$@" ;;
-  status)    shift; cmd_status "$@" ;;
+  status)    shift; cmd_status "${REST[@]}" ;;
   inbox)     shift; cmd_inbox "$@" ;;
   send)      shift; cmd_send "$@" ;;
   ack)       shift; cmd_ack "$@" ;;
@@ -546,5 +551,9 @@ case "${1:-}" in
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
+  provision) shift; parse_flags "$@"; require_host
+              muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
+              bus_py sync >/dev/null 2>&1 || true
+              cmd_status ;;
   *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|push|hosts|add-host|authorize|onboard}"; exit 2 ;;
 esac

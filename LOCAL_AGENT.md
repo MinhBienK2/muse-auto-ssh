@@ -1,62 +1,146 @@
-# INSTRUCTIONS FOR LOCAL AGENT (LOCAL_AGENT.md)
+# LOCAL_AGENT.md — hợp đồng cho Agent Ngoài (máy tính của người dùng)
 
-> **Dành cho Agent Ngoài:** Đọc tài liệu này khi repo được clone về máy tính cá nhân của người dùng (Linux, macOS hoặc WSL).
+> Đọc `PROTOCOL.md` trước nếu chưa hiểu tổng thể. File này là **quy trình vận hành** của bạn.
 
-Bạn là **Agent Ngoài** (ví dụ: Antigravity, Claude Code, Cursor, CLI Assistant). Nhiệm vụ của bạn là chuẩn bị môi trường phía máy cá nhân, tiếp nhận Public Key từ **Agent Muse**, và sau khi kết nối thành công sẽ tự động triển khai cơ chế **Self-Healing vĩnh viễn** vào máy ảo Muse.
-
----
-
-## 1. Bản chất kiến trúc
-- Máy cá nhân của bạn sẽ đóng vai trò là **SSH Endpoint** đón kết nối từ Muse qua mạng Tailscale (cổng 22).
-- Khi Muse kết nối tới cổng 22 của bạn, nó sẽ mở một cổng ngược (`127.0.0.1:2222`) trên máy bạn trỏ về máy ảo Muse.
-- Bạn sẽ đăng nhập vào máy ảo Muse bằng lệnh `ssh muse` (tương đương `ssh -p 2222 root@127.0.0.1`).
+Bạn là **Agent Ngoài**: AI agent chạy trên máy tính cá nhân của người dùng
+(Antigravity, Claude Code, Cursor, CLI assistant…). Nhiệm vụ của bạn là **phía máy ngoài** của
+`muse-bridge`: giữ kênh với Agent Muse và trao đổi công việc hai chiều.
 
 ---
 
-## 2. Quy trình thực hiện của bạn (Chỉ 2 bước)
+## 1. Nguyên tắc
 
-### Bước 1: Cấu hình máy ngoài khi có Public Key của Muse
-Khi người dùng hoặc Agent Muse cung cấp chuỗi `<MUSE_PUBLIC_KEY>`, bạn chạy lệnh:
+1. **Đọc `PROTOCOL.md` và `MUSE_AGENT.md`** để hiểu vai trò của hai bên.
+2. **Không tự chế giao thức mới.** Mọi trao đổi với Muse đi qua `bridge.py` (tin nhắn JSON).
+   Không copy/paste nội dung qua chat để "tiết kiệm thời gian" — đó là lý do thiết kế này tồn tại.
+3. **Mọi lần trả lời người dùng, kiểm tra hộp thư trước** (mục 3).
+4. **Trả lời đúng hạn**: tin `TASK`/`QUESTION` phải có tin trả lời kèm `reply_to`.
+5. Không sửa gì trên máy Muse ngoài việc ghi file vào spool của nó (tự động qua bus).
+
+---
+
+## 2. Chuẩn bị máy (chạy 1 lần cho mỗi máy)
+
 ```bash
-bash scripts/local_setup.sh "<MUSE_PUBLIC_KEY>"
+cd /path/to/muse
+bash scripts/bridge.sh arm
 ```
 
-Lệnh này sẽ:
-1. Kiểm tra và đảm bảo OpenSSH Server đang lắng nghe trên cổng 22.
-2. Tự động phát hiện IP Tailscale của máy bạn (`tailscale ip -4`).
-3. Tạo SSH Keypair `~/.ssh/id_ed25519` (nếu chưa có).
-4. Thêm `<MUSE_PUBLIC_KEY>` vào file `~/.ssh/authorized_keys`.
-5. Tạo alias `Host muse` trong `~/.ssh/config`.
-6. In ra thông số cần thiết để gửi cho Agent Muse.
+`arm` là idempotent — chạy lại không sao. Nó:
 
-👉 **Việc của bạn:** Copy thông tin xuất ra và gửi cho Agent Muse (hoặc bảo người dùng chuyển qua chat):
-```text
-bash scripts/muse_start_tunnel.sh <LOCAL_TAILSCALE_IP> <LOCAL_USER> "<LOCAL_PUBLIC_KEY>"
+1. kiểm tra `sshd` đang lắng nghe `:22` (tự `sudo systemctl enable --now ssh` nếu có quyền),
+2. phát hiện IP Tailscale,
+3. đảm bảo có key `~/.ssh/id_ed25519`,
+4. cài bus core vào `~/.muse-bridge/`, tạo spool, ghi `config.json`,
+5. cài TOFU hook (cần `sudo` 1 lần) → **mọi máy Muse mới tự được nhận**,
+6. đẩy bundle mới lên máy Muse (nếu kênh đang sống).
+
+Nếu bước 5 báo thiếu quyền root, báo lại người dùng đúng 1 dòng:
+
+```
+sudo bash scripts/install_tofu_hook.sh
+```
+
+Sau `arm`, lấy prompt cho Agent Muse:
+
+```bash
+bash scripts/bridge.sh prompt          # -> MUSE_PROMPT.md (đã điền thông số máy này)
+```
+
+→ Đưa nội dung đó cho người dùng để dán vào chat của Agent Muse (Flow A/B trong `PROTOCOL.md`).
+
+---
+
+## 3. Vòng lặp mỗi lượt làm việc
+
+```bash
+# 1) đọc hộp thư (luôn làm trước khi trả lời người dùng)
+bash scripts/bridge.sh inbox
+```
+
+Cách xử lý theo loại tin:
+
+| Loại tin | Việc bạn phải làm |
+|---|---|
+| `HELLO` | Trả `HELLO` lại (kèm `hostname` của máy bạn) và báo người dùng "Muse đã lên kênh". |
+| `TASK` | Làm việc được giao → gửi `REPORT` (hoặc `NOTE`) kèm `--reply-to <id>`. Sau đó `ack <id>`. |
+| `QUESTION` | Trả lời đúng trọng tâm → gửi `ANSWER` kèm `--reply-to <id>`. Sau đó `ack <id>`. |
+| `REPORT` / `STATUS` / `NOTE` | Đọc, tóm tắt cho người dùng nếu quan trọng, `ack <id>`. |
+| `BYE` | `ack <id>`, báo người dùng. |
+
+Gửi tin nhắn:
+
+```bash
+bash scripts/bridge.sh send --type REPORT --subject "Kết quả" --body "…" --reply-to "<id>"
+```
+
+Đánh dấu đã xử lý:
+
+```bash
+bash scripts/bridge.sh ack <id>
+```
+
+> `--reply-to` là bắt buộc với `TASK`/`QUESTION`. Không có nó, Muse không biết việc đã xong.
+
+---
+
+## 4. Khi Muse "hỏi" (Muse thiếu gì)
+
+Muse gửi `QUESTION` khi thiếu thông tin/tài nguyên (ví dụ: key chưa được authorize, thiếu file,
+cần bạn chạy một lệnh). Bạn **không cần hỏi lại người dùng** nếu bạn tự làm được — hãy:
+
+1. làm việc cần thiết (cài, cấu hình, chạy lệnh),
+2. gửi `ANSWER` kèm kết quả cụ thể (kèm `--reply-to`),
+3. nếu thật sự cần người dùng quyết định → trả lời trong chat **và** gửi `ANSWER` nói rõ đang
+   chờ gì.
+
+---
+
+## 5. Trạng thái & sự cố
+
+```bash
+bash scripts/bridge.sh status
+```
+
+In ra: `PEER_STATE=OK|DOWN`, số tin trong `inbox/outbox/pending/read`, tin gần nhất.
+
+| Tình huống | Xử lý |
+|---|---|
+| `PEER_STATE=DOWN` | Tunnel chết. Muse watchdog tự mở lại trong ~10s. Nếu >2 phút: `sudo systemctl status ssh`; báo người dùng nếu sshd tắt. |
+| `PENDING>0` | Tin chưa gửi được → `bash scripts/bridge.sh sync` (lệnh `daemon` cũng tự sync). |
+| Muốn cập nhật mã cho Muse | `bash scripts/bridge.sh push` (đẩy `bridge.py` + `muse_side.sh` mới lên máy Muse). |
+| Muốn Muse tự chạy nền | Nhờ Muse chạy `python3 ~/.muse-bridge/bridge.py status`; lệnh worker: `bash ~/.muse-bridge/muse_side.sh worker` (tự bật lại tunnel + ghi log). |
+
+### 5.1. Chạy nền (tuỳ chọn, khuyến nghị)
+
+```bash
+bash scripts/bridge.sh daemon      # chạy foreground: poll inbox, log, notify-send
+```
+
+Hoặc cài như service của user (tự chạy lại khi máy khởi động):
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp bridge/muse-bridge-daemon.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now muse-bridge-daemon
 ```
 
 ---
 
-### Bước 2: Kiểm tra kết nối và Tự động Bền vững hóa (Self-Healing)
-Sau khi Agent Muse thông báo đã chạy xong lệnh trên:
-Bạn chỉ cần chạy lệnh sau trên máy cá nhân:
-```bash
-bash scripts/local_finalize_persistence.sh
-```
+## 6. Không cần làm gì
 
-Lệnh này sẽ tự động:
-1. Chờ cổng `2222` trên máy cá nhân chuyển sang trạng thái `LISTEN`.
-2. Kiểm tra bắt tay SSH với máy ảo Muse (`ssh muse hostname`).
-3. Truyền và thực thi trực tiếp script `scripts/muse_harden_persistence.sh` vào bên trong máy ảo Muse qua SSH:
-   - Cài đặt dịch vụ systemd `muse-reverse-tunnel.service`.
-   - Nhúng cơ chế tự phục hồi vào Hatch Boot Hook (`muse-platform-boot.sh`) chạy mỗi 15s.
-   - Cập nhật `MEMORY.md` và `HEARTBEAT.md` của Muse.
-4. Xác nhận kết nối hoàn tất.
+- Không cần clone repo trên máy Muse.
+- Không cần copy public key hai chiều nữa (sau khi cài TOFU).
+- Không cần `ssh muse` thủ công để kiểm tra — `bridge.sh status` là đủ.
 
 ---
 
-## 3. Kết quả
-Kể từ thời điểm này, mỗi khi máy cá nhân bật OpenSSH Server, máy ảo Muse sẽ tự động kết nối lại trong vòng 10 giây. Bạn chỉ cần gõ:
+## 7. Kiểm tra nhanh (tự test trước khi bàn giao)
+
 ```bash
-ssh muse
+bash scripts/bridge.sh selftest     # bus hai hướng trên đĩa phương, không cần mạng
+bash scripts/bridge.sh status
 ```
-để vào thẳng máy ảo Muse bất cứ lúc nào!
+
+`selftest` phải in `SELFTEST: PASS`; `status` phải in `PEER_STATE=OK` khi tunnel đang sống.

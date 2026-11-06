@@ -1,109 +1,181 @@
-# Muse Auto SSH Bridge 🌉
+# muse-bridge — hai AI agent nói chuyện với nhau (Agent Ngoài ↔ Agent Muse)
 
-Hệ thống tự động hóa thiết lập kênh kết nối SSH 2 chiều an toàn, bền vững và tự phục hồi (**Zero-Drop Self-Healing**) giữa **Máy tính cá nhân** và **Meta Muse Secure VM** (`htch-runtime`) qua mạng **Tailscale**.
+Hệ thống kết nối **Agent Ngoài** (AI agent trên máy tính của bạn) với **Agent Muse**
+(AI agent trong container Meta `htch-runtime`) qua Tailscale, bằng **một reverse SSH tunnel**
+tự phục hồi + **một bus tin nhắn JSON hai chiều** (`muse-bridge`).
 
-Được thiết kế theo mô hình **Agent-to-Agent Collaboration**: AI Agent ở cả 2 đầu (Agent Máy Ngoài và Agent Muse) chỉ cần đọc file hướng dẫn tương ứng để tự động cấu hình và bắt tay với nhau.
+Mục tiêu thiết kế: **một lần dán prompt là chạy trọn**. Muse tự làm phần của nó, tự báo cáo về
+máy bạn; khi thiếu gì thì Muse *nhắn* sang máy bạn để xin — không cần bạn chép tay.
 
 ---
 
-## 🏗️ Kiến Trúc Hệ Thống
+## 1. Kiến trúc
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant LocalAgent as Agent Máy Ngoài (G3 / Dev Host)
-    participant User as Người Dùng
-    participant MuseAgent as Agent Muse (htch-runtime VM)
+flowchart LR
+    subgraph Local["Máy tính của bạn — 100.120.205.53"]
+        LA["Agent Ngoài<br/>bash scripts/bridge.sh …"]
+        LS["~/.muse-bridge/<br/>inbox · outbox · read"]
+        LD["sshd :22<br/>+ TOFU tự pin key Muse"]
+    end
+    subgraph Muse["Container root@htch-runtime"]
+        MA["Agent Muse<br/>python3 ~/.muse-bridge/bridge.py …"]
+        MS["/root/.muse-bridge/<br/>inbox · outbox · read"]
+        MT["reverse-tunnel.sh<br/>ssh -N -R 2222:127.0.0.1:22"]
+    end
 
-    Note over MuseAgent: 1. Clone repo & đọc MUSE_AGENT.md
-    MuseAgent->>MuseAgent: Chạy scripts/muse_bootstrap.sh
-    MuseAgent-->>User: Gửi Muse Public Key
-    User-->>LocalAgent: Cung cấp Muse Public Key
-
-    Note over LocalAgent: 2. Clone repo & đọc LOCAL_AGENT.md
-    LocalAgent->>LocalAgent: Chạy scripts/local_setup.sh <MUSE_PUB_KEY>
-    LocalAgent-->>User: Xuất Local Tailscale IP, User, Local PubKey
-    User-->>MuseAgent: Gửi lệnh muse_start_tunnel.sh ...
-
-    Note over MuseAgent: 3. Mở Reverse Tunnel
-    MuseAgent->>MuseAgent: Chạy scripts/muse_start_tunnel.sh
-    MuseAgent-->>LocalAgent: Reverse SSH Tunnel mở về Local:2222
-
-    Note over LocalAgent: 4. Kiểm tra & Bền vững hóa (Self-Healing)
-    LocalAgent->>LocalAgent: Chạy scripts/local_finalize_persistence.sh
-    LocalAgent->>MuseAgent: Đẩy scripts/muse_harden_persistence.sh qua SSH
-    Note over MuseAgent: Kích hoạt Systemd + 15s Hatch Boot Hook + Memory
-    LocalAgent-->>User: Kết nối hoàn tất! Dùng lệnh: ssh muse
+    MA -->|"HELLO / REPORT / QUESTION / ANSWER"| LS
+    LA -->|"TASK / ANSWER / NOTE"| MS
+    MT -->|"reverse tunnel (qua Tailscale + proxy)"| LD
 ```
+
+- **Truyền tin = ghi file JSON vào hộp thư của bên kia** (không cần server/port mới).
+- **Một nguồn mã**: `bridge/bridge.py` được embed nguyên văn vào `MUSE_PROMPT.md` → hai bên
+  luôn chạy cùng code.
+- **Tin không mất khi kênh chết**: gửi lỗi → `pending/`, tự `sync` lại khi kênh sống.
+
+Chi tiết giao thức: [`PROTOCOL.md`](PROTOCOL.md) · Hợp đồng mỗi bên:
+[`LOCAL_AGENT.md`](LOCAL_AGENT.md) · [`MUSE_AGENT.md`](MUSE_AGENT.md)
 
 ---
 
-## 📂 Cấu Trúc Repository
+## 2. Chạy thử trong 3 phút
+
+### Bước 1 — phía máy bạn (1 lần cho mỗi máy)
+
+```bash
+cd /path/to/muse
+bash scripts/bridge.sh arm
+```
+
+Lệnh này: bật `sshd`, phát hiện IP Tailscale, tạo key, cài bus vào `~/.muse-bridge/`,
+cài **TOFU hook** (để máy Muse nào cũng tự được nhận — cần `sudo` đúng 1 lần), đẩy bundle lên Muse.
+
+Nếu báo thiếu quyền root, chạy:
+
+```bash
+sudo bash scripts/install_tofu_hook.sh
+```
+
+### Bước 2 — phía máy Muse (dán 1 lần)
+
+```bash
+bash scripts/bridge.sh prompt     # sinh MUSE_PROMPT.md đã điền thông số máy này
+```
+
+Dán nội dung `MUSE_PROMPT.md` vào chat của Agent Muse (bất kì máy Muse nào cũng được).
+Agent Muse tự: dựng tunnel, cài watchdog, gửi `HELLO` + `REPORT` về máy bạn.
+
+### Bước 3 — kiểm tra
+
+```bash
+bash scripts/bridge.sh status    # PEER_STATE=OK
+bash scripts/bridge.sh inbox     # thấy HELLO/REPORT của Muse
+```
+
+### Đảo chiều (Flow B)
+
+Agent Ngoài làm trước (`arm` + `prompt`), rồi bạn dán prompt vào Muse → kích hoạt ngay,
+không cần chờ ai.
+
+---
+
+## 3. Trao đổi việc giữa hai agent
+
+```bash
+# máy bạn → Muse
+bash scripts/bridge.sh send --type TASK --subject "Kiểm tra tunnel" --body "In trạng thái"
+
+# Muse → máy bạn (trong chat Muse, agent sẽ tự gọi)
+python3 /root/.muse-bridge/bridge.py send --type QUESTION --subject "Cần key" --body "..."
+```
+
+Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send` (kèm `--reply-to`) → `ack`.
+
+| Loại tin | Ý nghĩa |
+|---|---|
+| `HELLO` | Bên kia vừa lên kênh |
+| `TASK` | Giao việc |
+| `QUESTION` | Cần thông tin/tài nguyên từ bên kia |
+| `ANSWER` | Trả lời `QUESTION` |
+| `REPORT` / `STATUS` | Báo cáo / trạng thái |
+| `NOTE` | Ghi chú |
+| `BYE` | Kết thúc phiên |
+
+---
+
+## 4. Cấu trúc repo
 
 ```text
 .
-├── README.md                          # Tài liệu tổng quan
-├── MUSE_AGENT.md                      # Hướng dẫn chi tiết dành riêng cho Agent Muse
-├── LOCAL_AGENT.md                     # Hướng dẫn chi tiết dành riêng cho Agent Máy Ngoài
-├── MUSE_SSH_SETUP_GUIDE.md            # Tài liệu phân tích chuyên sâu về mạng ngầm của Muse
+├── PROTOCOL.md                  # ⭐ hợp đồng giao thức (đọc đầu tiên)
+├── LOCAL_AGENT.md               # ⭐ quy trình cho Agent Ngoài
+├── MUSE_AGENT.md                # ⭐ quy trình cho Agent Muse
+├── MUSE_PROMPT.md               # ⭐ prompt dán 1 lần (sinh tự động)
+├── README.md
+├── MUSE_SSH_SETUP_GUIDE.md      # phân tích mạng ngầm (tài liệu cũ, vẫn đúng)
+├── bridge/
+│   ├── bridge.py                # ⭐ bus core — mã nguồn chung của cả hai bên
+│   ├── local_side.sh            # phía máy ngoài: arm / daemon / prompt / push
+│   ├── muse_side.sh             # phía Muse: setup / worker / bus CLI (embed vào prompt)
+│   ├── inject_watchdog.py       # watchdog v2 (kiểm tra chức năng sshd + tunnel)
+│   └── authorize_peer.sh        # TOFU cho sshd (tự pin key Muse mới)
 ├── scripts/
-│   ├── muse_bootstrap.sh              # Bước 1 (Muse): Bật sshd, tạo/lấy Public Key Muse
-│   ├── muse_start_tunnel.sh           # Bước 2 (Muse): Thêm key máy ngoài, mở reverse tunnel
-│   ├── muse_harden_persistence.sh     # Bước 3 (Muse): Cài đặt Systemd & Hatch Boot Hook tự phục hồi
-│   ├── local_setup.sh                 # Bước 1 (Máy ngoài): Chuẩn bị sshd, Tailscale IP, ~/.ssh/config
-│   ├── local_finalize_persistence.sh  # Bước 2 (Máy ngoài): Test SSH & đẩy hardening vào Muse
-│   └── templates/
-│       ├── ts-socat-proxy.sh          # Proxy bridge có auto-discovery HTTPS_PROXY token
-│       ├── reverse-tunnel.sh          # Loop tự reconnect mỗi 10s khi máy ngoài mở SSH
-│       └── muse-reverse-tunnel.service# File dịch vụ systemd
+│   ├── bridge.sh                # ⭐ CLI phía máy ngoài
+│   ├── render_prompt.py         # sinh MUSE_PROMPT.md từ template + mã nguồn
+│   ├── install_tofu_hook.sh     # cài TOFU hook (sudo, 1 lần)
+│   └── check_prompt_sync.sh     # kiểm tra MUSE_PROMPT.md còn đồng bộ
+├── templates/
+│   └── MUSE_PROMPT.template.md  # ⭐ template của prompt (render_prompt.py điền chỗ)
+├── tests/
+│   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
+│   ├── bus_selftest.sh          # bus hai hướng (dir transport)
+│   ├── watchdog_upgrade_test.sh # nâng cấp watchdog v1 → v2 trong Hatch hook
+│   └── muse_side_test.sh        # bundle trong prompt chạy đúng, HELLO/REPORT tới nơi
+└── legacy/                      # script của thiết kế cũ (xem legacy/README.md)
 ```
 
 ---
 
-## 🚀 Hướng Dẫn Sử Dụng Nhanh
+## 5. Lệnh thường dùng
 
-### 1. Phía máy ảo Muse
-Khi clone repo về máy ảo Muse, bảo Agent Muse:
-> *"Hãy đọc file `MUSE_AGENT.md` và thực hiện theo hướng dẫn."*
+| Lệnh (máy bạn) | Việc |
+|---|---|
+| `bash scripts/bridge.sh arm` | Chuẩn bị máy (idempotent) |
+| `bash scripts/bridge.sh status` | Trạng thái kênh + số tin |
+| `bash scripts/bridge.sh inbox` | Đọc tin gửi tới (`--watch` để chờ) |
+| `bash scripts/bridge.sh send --type … --subject … --body …` | Gửi tin |
+| `bash scripts/bridge.sh ack <id>` | Đánh dấu đã xử lý |
+| `bash scripts/bridge.sh sync` | Gửi lại tin đang chờ (`pending/`) |
+| `bash scripts/bridge.sh prompt` | Render prompt cho Muse |
+| `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
+| `bash scripts/bridge.sh daemon` | Watcher nền: log + thông báo desktop |
+| `bash scripts/bridge.sh selftest` | Chạy toàn bộ kiểm tra (bus, watchdog, bundle prompt) — không cần mạng |
 
-Agent Muse sẽ chạy:
-```bash
-bash scripts/muse_bootstrap.sh
-```
-và gửi lại cho bạn chuỗi **Public Key** của Muse.
-
----
-
-### 2. Phía máy tính cá nhân
-Khi có Public Key của Muse, bảo Agent máy cá nhân:
-> *"Hãy đọc file `LOCAL_AGENT.md` và chạy setup với key của Muse: `<MUSE_PUBLIC_KEY>`"*
-
-Agent máy cá nhân sẽ chạy:
-```bash
-bash scripts/local_setup.sh "<MUSE_PUBLIC_KEY>"
-```
-và in ra câu lệnh để bạn gửi cho Agent Muse.
+Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào thẳng container Muse.
 
 ---
 
-### 3. Khởi tạo đường hầm & Tự động bền vững hóa
-1. Gửi lệnh xuất ra từ bước 2 cho Agent Muse chạy:
-   ```bash
-   bash scripts/muse_start_tunnel.sh <LOCAL_IP> <LOCAL_USER> "<LOCAL_PUB_KEY>"
-   ```
-2. Trên máy cá nhân, chạy lệnh chốt:
-   ```bash
-   bash scripts/local_finalize_persistence.sh
-   ```
+## 6. Xử lý sự cố nhanh
+
+| Triệu chứng | Nguyên nhân | Xử lý |
+|---|---|---|
+| `PEER_STATE=DOWN` | Tunnel chết | Muse watchdog tự mở lại ~10s; nếu lâu hơn: `sudo systemctl start ssh` |
+| `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin → `bash scripts/bridge.sh sync` |
+| Muse báo `Permission denied` | Key Muse mới chưa được authorize | `sudo bash scripts/install_tofu_hook.sh` (TOFU) |
+| Port `2222` bận | Tunnel cũ còn treo | `ss -tlnp | grep 2222` → dừng tunnel cũ rồi `bridge.sh push` |
+| `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo | Watchdog v2 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → mở lại/recycle phiên Muse trong UI Meta rồi `bash scripts/bridge.sh status` |
+| Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 
 ---
 
-## ✨ Điểm Nổi Bật Của Hệ Thống Này
+## 7. Nguyên tắc thiết kế
 
-- **Always-Alive Reconnect Loop:** Khi máy cá nhân tắt SSH hoặc reboot, Muse chuyển sang chế độ chờ. Ngay khi máy cá nhân bật lại OpenSSH Server, Muse tự động kết nối lại trong vòng 10 giây.
-- **Tự phục hồi sau khi VM bị Recycle (Checkpoint/Reboot):** Nhờ cơ chế hook tự kiểm tra mỗi 15 giây (`muse-platform-boot.sh`) nằm trên phân vùng btrfs bền vững (`/home/hatch`), Muse luôn tự bật lại SSH server và đường hầm mà không cần người dùng can thiệp lại.
-- **Dynamic Proxy Token Resolver:** `ts-socat-proxy.sh` tự động phân giải token `HTTPS_PROXY` từ runtime của hệ thống, không sợ mất biến môi trường trong tiến trình chạy nền.
-- **Dễ sử dụng hằng ngày:** Sau khi cài đặt xong, bạn chỉ cần gõ duy nhất:
-  ```bash
-  ssh muse
-  ```
+1. **Không tin vào nội dung ngoài.** Agent Muse bị bộ lọc an toàn chặn nội dung tải từ web → mọi
+   thứ nó cần nằm sẵn trong prompt do người dùng dán.
+2. **Một nguồn mã.** Prompt được *sinh ra* từ template + `bridge/bridge.py` → không thể lệch
+   phiên bản giữa hai bên.
+3. **Adopt trước, sửa sau.** Nếu tunnel/deployment đã chạy thì dùng, không cài lại, không kill.
+4. **Không mất tin.** Ghi file atomic (`tmp` + `mv`), gửi lỗi thì giữ ở `pending/`.
+5. **Bất biến rõ ràng.** Không dùng "magic file" markdown (`OUTER_TASKS.md`) — mọi trao đổi là
+   message JSON có `id`, `type`, `reply_to`.

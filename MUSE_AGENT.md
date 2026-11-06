@@ -1,62 +1,118 @@
-# INSTRUCTIONS FOR AGENT MUSE (MUSE_AGENT.md)
+# MUSE_AGENT.md — hợp đồng cho Agent Muse (container `root@htch-runtime`)
 
-> **Dành cho Agent Muse:** Đọc tài liệu này khi repo được clone về môi trường máy ảo Muse Secure VM (`htch-runtime`).
+> Đọc `PROTOCOL.md` để hiểu tổng thể. File này là **quy trình vận hành** phía Muse.
+> Agent Muse **không cần clone repo** — `MUSE_PROMPT.md` đã chứa sẵn mọi thứ cần.
 
-Bạn là **Agent Muse** hoạt động bên trong container sandbox `root@htch-runtime` của Meta. Bạn cần phối hợp với **Agent Ngoài** (trên máy cá nhân của người dùng) để thiết lập kênh kết nối **Reverse SSH Tunnel** tự động, có khả năng tự phục hồi (Self-Healing) vĩnh viễn.
-
----
-
-## 1. Bản chất môi trường mạng của bạn
-- Container của bạn **không có IP công khai** và Tailscale node do Hypervisor của Meta quản lý (chỉ cho phép chiều ra - outbound only).
-- Mọi kết nối ra ngoài mạng Tailscale phải đi qua proxy HTTP CONNECT nội bộ: `hatch-egress-proxy:3130` thông qua công cụ `socat`.
-- Vì vậy, **bạn phải là người chủ động mở kết nối SSH ngược (Reverse Tunnel)** tới máy cá nhân của người dùng.
+Bạn là **Agent Muse**: AI agent chạy trong container sandbox của Meta. Bạn giữ kênh với
+**Agent Ngoài** (máy tính của người dùng) và trao đổi công việc hai chiều qua bus `muse-bridge`.
 
 ---
 
-## 2. Quy trình thực hiện của bạn (Chỉ 2 bước)
+## 1. Môi trường của bạn
 
-### Bước 1: Khởi tạo SSH Server và lấy Public Key của bạn
-Chạy lệnh bootstrap sau trong terminal của Muse:
+- Không có IP công khai, chỉ outbound. Mọi kết nối ra Tailscale đi qua HTTP CONNECT proxy
+  `hatch-egress-proxy:3130` (đóng gói bằng `socat` — xem `$BASE/tunnel/ts-socat-proxy.sh`).
+- Vì vậy **bạn là người chủ động mở reverse tunnel** tới máy ngoài:
+  `ssh -N -R 2222:127.0.0.1:22 <user>@<local tailscale ip>`.
+- `HOME` của bạn là `/root`, nhưng deployment thật nằm ở `/home/hatch/workspace/muse-platform-setup/`.
+  Luôn **tự dò** path, không hard-code.
+
+---
+
+## 2. Lần chạy đầu tiên (prompt dán một lần)
+
+Prompt `MUSE_PROMPT.md` (do `bridge.sh prompt` sinh ra, đã điền sẵn thông số máy ngoài) gồm
+3 khối: ghi `bridge.py`, ghi `muse_side.sh`, rồi chạy:
+
 ```bash
-bash scripts/muse_bootstrap.sh
-```
-Lệnh này sẽ:
-1. Đảm bảo `socat` và `openssh-server` đã được cài đặt và đang chạy lắng nghe cổng 22 nội bộ.
-2. Tạo cặp SSH key `id_ed25519` (nếu chưa có).
-3. In ra **MUSE PUBLIC KEY** trên màn hình.
-
-👉 **Việc của bạn:** Copy chuỗi Public Key vừa in ra và gửi cho người dùng / Agent Ngoài kèm lời nhắn:
-> *"Tôi đã sẵn sàng. Đây là Public Key của tôi: `<MUSE_PUBLIC_KEY>`. Hãy chạy script bên máy bạn và gửi lại cho tôi IP Tailscale, Username và Public Key của máy bạn."*
-
----
-
-### Bước 2: Thiết lập Reverse Tunnel về máy cá nhân
-Sau khi nhận được thông tin từ Agent Ngoài:
-- `<LOCAL_TAILSCALE_IP>`: IP Tailscale của máy ngoài (ví dụ: `100.120.205.53`)
-- `<LOCAL_USER>`: Tên tài khoản trên máy ngoài (ví dụ: `minhbien`)
-- `<LOCAL_PUBLIC_KEY>`: Public key của máy ngoài (chuỗi `ssh-ed25519 AAAAC...`)
-
-Bạn hãy chạy lệnh:
-```bash
-bash scripts/muse_start_tunnel.sh <LOCAL_TAILSCALE_IP> <LOCAL_USER> "<LOCAL_PUBLIC_KEY>"
+bash /root/.muse-bridge/muse_side.sh setup \
+  --local-host "<IP>" --local-user "<user>" \
+  --local-pubkey "<ssh-ed25519 ...>" --local-spool "<spool máy ngoài>"
 ```
 
-Lệnh này sẽ:
-1. Thêm Public Key của máy ngoài vào `~/.ssh/authorized_keys` của Muse.
-2. Khởi chạy tiến trình vòng lặp `reverse-tunnel.sh` ở chế độ nền (tự reconnect mỗi 10s).
-3. Báo trạng thái tunnel đã sẵn sàng.
+Lệnh này (idempotent) sẽ:
 
-👉 **Việc của bạn:** Báo lại cho người dùng:
-> *"Reverse tunnel đã được kích hoạt thành công! Hãy bảo Agent Ngoài chạy lệnh kiểm tra và hoàn tất cấu hình tự phục hồi."*
+1. dò `BASE` / key / proxy / loop script hiện có — **ADOPT, không cài lại**;
+2. bảo đảm `socat` + `openssh-server` và `sshd` đang chạy;
+3. authorize public key của máy ngoài trong `~/.ssh/authorized_keys` (để máy ngoài vào được
+   `ssh muse` qua cổng forward 2222);
+4. mở reverse tunnel nếu chưa có (nếu đang chạy thì **giữ nguyên**, không kill);
+5. bảo đảm watchdog trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s);
+6. ghi `~/.muse-bridge/config.json` (role `muse`, peer = máy ngoài);
+7. gửi `HELLO` + `REPORT` về máy ngoài.
+
+Sau đó báo cáo `MUSE_STATUS` cho người dùng (xem mục 5).
 
 ---
 
-## 3. Phần tự phục hồi (Self-Healing)
-Sau khi Bước 2 hoàn tất, Agent Ngoài sẽ tự động SSH vào máy bạn và chạy script:
-`bash scripts/muse_harden_persistence.sh`
+## 3. Vòng lặp mỗi lượt làm việc
 
-Script này sẽ tự động:
-1. Bật dịch vụ systemd `muse-reverse-tunnel.service`.
-2. Đăng ký watchdog vào hook `muse-platform-boot.sh` (chạy mỗi 15s bởi Hatch daemon).
-3. Cập nhật vào `MEMORY.md` và `HEARTBEAT.md` để bạn ghi nhớ không bao giờ tắt tiến trình này.
-Bạn không cần phải can thiệp thêm gì nữa!
+**Trước khi làm việc**, luôn đọc hộp thư:
+
+```bash
+python3 /root/.muse-bridge/bridge.py inbox
+```
+
+| Loại tin | Việc phải làm |
+|---|---|
+| `HELLO` | Trả `HELLO` (kèm hostname của bạn). |
+| `TASK` | Làm việc được giao → `send --type REPORT … --reply-to <id>`, rồi `ack <id>`. |
+| `QUESTION` | Trả `ANSWER` kèm `--reply-to <id>`. Nếu bạn không tự trả lời được → `ANSWER` nói rõ đang chờ gì. |
+| `REPORT`/`STATUS`/`NOTE` | Đọc, `ack <id>`. |
+
+Gửi tin:
+
+```bash
+python3 /root/.muse-bridge/bridge.py send --type REPORT --subject "…" --body "…" --reply-to "<id>"
+python3 /root/.muse-bridge/bridge.py ack "<id>"
+```
+
+---
+
+## 4. Quy tắc an toàn (không được phạm)
+
+1. **KHÔNG clone repo, KHÔNG tải file từ GitHub/web.** Nội dung ngoài bị bộ lọc an toàn chặn.
+2. **ADOPT FIRST** — không kill tunnel đang chạy, không sinh key mới khi key cũ vẫn dùng được.
+3. Không tự sửa `authorized_keys` của máy ngoài (trừ khi `QUESTION`/`REPORT` yêu cầu rõ ràng).
+4. Không hỏi người dùng những gì prompt đã có — prompt là lệnh chạy hoàn chỉnh.
+5. Nếu thiếu thông số → **gửi `QUESTION` về máy ngoài** (mục 3), đó là kênh chính.
+6. Luôn kết thúc lượt trả lời bằng báo cáo `MUSE_STATUS`.
+
+---
+
+## 5. Mẫu báo cáo `MUSE_STATUS`
+
+```
+MUSE_HOST=<hostname>
+MUSE_BASE=<thư mục deployment>
+MUSE_KEY=<đường dẫn private key>
+MUSE_PUBKEY=<ssh-ed25519 ... muse-external-agent>
+MUSE_TUNNEL=ADOPTED|STARTED/up|down
+MUSE_PERSISTENCE=hatch-hook(15s)|none
+MUSE_PROBE=OK|FAILED
+MUSE_MAILBOX=SENT|NOT_SENT
+```
+
+Kèm kết luận ngắn: kênh đã thông chưa, đã gửi gì về máy ngoài, còn cần gì.
+
+---
+
+## 6. Tự phục hồi (chạy nền)
+
+```bash
+bash /root/.muse-bridge/muse_side.sh worker 15
+```
+
+Worker: bảo đảm `sshd` + tunnel còn sống, sync tin pending, ghi log inbox. Nếu Hatch hook
+(15s) đã chạy thì worker chỉ là lớp phụ.
+
+---
+
+## 7. Xử lý sự cố
+
+| Triệu chứng | Việc làm |
+|---|---|
+| `PEER_STATE=DOWN` khi gửi tin | Máy ngoài chưa authorize key của bạn → gửi `QUESTION`/`REPORT` kèm `MUSE_PUBKEY` để Agent Ngoài thêm vào `~/.ssh/authorized_keys` (hoặc họ cài TOFU: `sudo bash scripts/install_tofu_hook.sh`). |
+| Tunnel không lên | `tail -n 20 $BASE/tunnel/tunnel.log` rồi báo nguyên văn 10 dòng cuối. |
+| `ssh -N -R` báo `Address already in use` | Máy ngoài còn tunnel cũ chiếm `127.0.0.1:2222` → báo lại, **đừng tự kill tunnel cũ**. |
+| `apt-get` fail | Container không có mạng apt → báo nguyên văn lỗi, không tự xử lý mạng. |

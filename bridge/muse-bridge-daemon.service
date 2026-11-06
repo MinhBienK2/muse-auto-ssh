@@ -1,0 +1,15 @@
+[Unit]
+Description=muse-bridge - watcher inbox cho Agent Ngoai (tu gui lai tin pending)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+#Sua duong dan repo neu ban move repo:
+WorkingDirectory=/home/minhbien/Documents/muse
+ExecStart=/bin/bash /home/minhbien/Documents/muse/scripts/bridge.sh daemon 3
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,297 @@
+# PROTOCOL.md — `muse-bridge` v1
+
+> **Hợp đồng giữa Agent Ngoài (máy tính của bạn) và Agent Muse (container Meta).**
+> Đọc file này là hiểu ngay hai agent nói chuyện với nhau bằng cách nào, ai làm gì,
+> và làm sao một lần dán prompt là chạy trọn.
+
+---
+
+## 1. Mục tiêu
+
+Hai agent ở hai máy khác nhau (máy cá nhân ↔ container Muse, nối qua Tailscale) cần:
+
+1. **Tự dựng kênh** mà không cần người dùng chép tay public key qua lại.
+2. **Trao đổi tin nhắn hai chiều** (giao việc, hỏi đáp, báo cáo) — không phải trao đổi
+   qua chat của người dùng.
+3. **Tự phục hồi**: tunnel chết thì tự lên lại; tin nhắn gửi lỗi thì không mất.
+4. **Một nguồn sự thật**: hai agent chạy *cùng một mã* (`bridge/bridge.py`).
+
+---
+
+## 2. Vai trò
+
+| Vai trò | Chạy ở đâu | Làm gì |
+|---|---|---|
+| **Agent Ngoài** (`local`) | Máy tính của bạn (Linux/macOS/WSL) | Chuẩn bị máy, giữ kênh, đọc/gửi tin nhắn, trả lời khi Muse hỏi |
+| **Agent Muse** (`muse`) | Container `root@htch-runtime` | Dựng tunnel, giữ kênh, đọc/gửi tin nhắn, báo cáo trạng thái, hỏi khi thiếu thông tin |
+
+Cả hai đều là **agent AI**: mỗi bên có một vòng lặp "đọc hộp thư → xử lý → trả lời".
+
+---
+
+## 3. Kiến trúc kênh
+
+```mermaid
+flowchart LR
+    subgraph Local["Máy tính của bạn (100.120.205.53)"]
+        LA["Agent Ngoài<br/>(bash scripts/bridge.sh …)"]
+        LS["Spool<br/>~/.muse-bridge/{inbox,outbox,read}"]
+        LD["sshd :22<br/>(TOFU: tự pin key peer)"]
+        LF["127.0.0.1:2222<br/>(forward ngược do Muse mở)"]
+    end
+    subgraph Tailnet["Tailscale WireGuard"]
+        PR["hatch-egress-proxy:3130<br/>(HTTP CONNECT, chỉ ở phía Muse)"]
+    end
+    subgraph Muse["Container root@htch-runtime"]
+        MA["Agent Muse<br/>(python3 ~/.muse-bridge/bridge.py …)"]
+        MS["Spool<br/>/root/.muse-bridge/{inbox,outbox,read}"]
+        MSHD["sshd :22"]
+        MT["reverse-tunnel.sh<br/>ssh -N -R 2222:127.0.0.1:22"]
+    end
+
+    MA -->|"ssh tới local:22 (qua proxy)<br/>ghi file vào inbox của local"| LS
+    LA -->|"ssh -p 2222 root@127.0.0.1<br/>ghi file vào inbox của Muse"| MS
+    MT -->|"ssh -R 2222 (qua proxy)"| LD
+    LD --> LF
+    LF --> MSHD
+```
+
+Ba nguyên tắc của kênh:
+
+1. **Một kênh SSH duy nhất, hai chiều.** Muse mở *reverse tunnel* (`ssh -R 2222`) tới máy ngoài.
+   Khi đó máy ngoài đã có `127.0.0.1:2222` → SSH server của Muse.
+2. **Truyền tin = ghi file.** Không có server, không có port mới, không cần daemon ở giữa.
+   `bridge.py send` chỉ là `ssh <peer> 'cat > <peer spool>/inbox/<id>.json'`.
+3. **Chịu được sự cố.** Ghi file tạm rồi `mv` (atomic). Gửi hỏng → tin nằm ở `outbox/pending-*`,
+   `bridge.py sync` gửi lại khi kênh sống lại.
+
+---
+
+## 4. Mô hình tin cậy (trust)
+
+| Việc | Ai giữ | Ghi chú |
+|---|---|---|
+| Key của Agent Ngoài | `~/.ssh/id_ed25519` (máy bạn) | Public key được **đính kèm trong prompt** → Muse authorize ngược trong `authorized_keys` của nó. Chỉ có public key trong prompt. |
+| Key của Agent Muse | `~/.muse-bridge/…` / `$BASE/keys/muse-agent-ed25519` (máy Muse) | Máy ngoài **tự động pin** (TOFU) khi Muse kết nối lần đầu. |
+| TOFU | `bridge/authorize_peer.sh` (chạy bởi sshd) | Chỉ nhận peer có IP trong tailnet `100.64.0.0/10` / `fd7a:115c:a1e0::/48`. Key bị giới hạn: không PTY, không agent-forwarding, không X11. |
+
+Cài TOFU (một lần, cần `sudo`):
+
+```bash
+sudo bash scripts/install_tofu_hook.sh
+```
+
+Sau đó **mọi máy Muse mới** đều tự được nhận — không còn copy/paste public key.
+
+> Nếu chưa cài TOFU: hệ thống vẫn chạy với key đã được authorize sẵn; Muse mới sẽ báo
+> `QUESTION` + `MUSE_PUBKEY` để Agent Ngoài thêm vào `~/.ssh/authorized_keys`.
+
+---
+
+## 5. Spool (hộp thư)
+
+Mỗi bên có một thư mục spool:
+
+```
+~/.muse-bridge/            # máy ngoài: $HOME/.muse-bridge
+/root/.muse-bridge/        # máy Muse
+├── inbox/                 # tin nhắn gửi TỚI tôi (mỗi tin = 1 file .json)
+├── outbox/                # bản sao tin tôi đã gửi
+├── pending/               # tin gửi lỗi, chờ sync lại
+├── read/                  # tin đã xử lý
+├── logs/                  # log daemon
+├── bridge.py              # bus core (mã nguồn chung)
+├── config.json            # cấu hình: role, spool, peer
+└── peers/                 # fingerprint key đã pin (TOFU)
+```
+
+Tên file = `<id>.json`, `id` = `<UTC timestamp>-<8 hex>` → sắp xếp theo thứ tự thời gian.
+
+---
+
+## 6. Envelope tin nhắn
+
+```json
+{
+  "v": 1,
+  "id": "20261106T093012Z-4f2a91c7",
+  "ts": "2026-11-06T09:30:12Z",
+  "from": "muse",
+  "to": "local",
+  "type": "REPORT",
+  "subject": "Trạng thái Muse",
+  "body": "MUSE_TUNNEL=ADOPTED/up …",
+  "reply_to": null,
+  "meta": { "MUSE_HOST": "htch-runtime" }
+}
+```
+
+| Trường | Bắt buộc | Ý nghĩa |
+|---|---|---|
+| `v` | có | Phiên bản protocol (hiện tại `1`) |
+| `id` | có | Định danh duy nhất, dùng để `ack` và `reply_to` |
+| `ts` | có | Thời điểm gửi (UTC, ISO-8601) |
+| `from` / `to` | có | `local` hoặc `muse` |
+| `type` | có | Loại tin (bảng ở mục 7) |
+| `subject` | không | Một dòng tóm tắt |
+| `body` | không | Nội dung (text thuần; không phải JSON) |
+| `reply_to` | không | `id` của tin được trả lời |
+| `meta` | không | Cặp key/value tùy ý (trạng thái, số liệu) |
+
+---
+
+## 7. Loại tin (message types)
+
+| `type` | Hướng | Ý nghĩa | Bắt buộc phản hồi? |
+|---|---|---|---|
+| `HELLO` | → | Bên kia vừa lên kênh, tự giới thiệu | Không (trả lời bằng `HELLO` là tốt) |
+| `TASK` | → | Giao việc cụ thể | Có: `REPORT`/`NOTE` có `reply_to` |
+| `QUESTION` | → | Cần thông tin/tài nguyên mà bên kia mới có | Có: `ANSWER` |
+| `ANSWER` | → | Trả lời cho `QUESTION` (luôn kèm `reply_to`) | Không |
+| `STATUS` | → | Trạng thái ngắn (kênh còn sống không) | Không |
+| `REPORT` | → | Báo cáo kết quả/trạng thái chi tiết | Không |
+| `NOTE` | → | Ghi chú, không cần phản hồi | Không |
+| `BYE` | → | Kết thúc phiên làm việc | Không |
+
+**Luật bắt buộc:** mọi tin `TASK`/`QUESTION` phải có một tin trả lời với `reply_to` trỏ về
+`id` của nó — nếu không, bên gửi không biết việc đã xong hay chưa.
+
+---
+
+## 8. Vòng đời của mỗi bên
+
+```mermaid
+stateDiagram-v2
+    [*] --> OFFLINE: chưa cấu hình
+    OFFLINE --> ARMED: chạy bridge.sh arm (máy ngoài)<br/>hoặc dán MUSE_PROMPT.md (máy Muse)
+    ARMED --> CONNECTED: HELLO + REPORT gửi thành công
+    CONNECTED --> CONNECTED: mỗi lượt: inbox → xử lý → send → ack
+    CONNECTED --> DEGRADED: gửi lỗi → pending, sync định kỳ
+    DEGRADED --> CONNECTED: sync thành công
+    CONNECTED --> OFFLINE: tunnel chết lâu, watchdog sửa lại
+```
+
+Hai "đồng hồ" giữ cho mỗi bên luôn sống:
+
+- **Máy Muse**: `reverse-tunnel.sh` (reconnect mỗi 10s) + **watchdog v2** trong
+  `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s) + `muse_side.sh worker`.
+  Watchdog v2 kiểm tra *chức năng*, không chỉ "tiến trình còn sống":
+  1. `sshd` phải **trả lời banner** trên `:22` — nếu treo thì `pkill` + khởi động lại;
+  2. tunnel phải **kết nối được** tới máy ngoài (probe mỗi 60s); trượt 2 lần liên tiếp thì
+     restart loop.
+  (Block cũ chỉ dùng `pgrep` → gặp `sshd` treo là không tự phục hồi được.)
+- **Máy ngoài**: `bridge.sh daemon` (tuỳ chọn) — poll `pending/`, ghi log, báo desktop.
+
+---
+
+## 9. Luồng nghiệp vụ
+
+### Flow A — "Dán prompt một lần trên bất kì máy Muse nào"
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Người dùng
+    participant MA as Agent Muse
+    participant LA as Agent Ngoài (máy bạn)
+
+    U->>MA: dán nội dung MUSE_PROMPT.md
+    MA->>MA: viết bridge.py + muse_side.sh, chạy setup
+    MA->>MA: sshd + reverse tunnel (adopt nếu đã có)
+    MA->>LA: HELLO (qua ssh tới 100.x:22)
+    MA->>LA: REPORT (trạng thái tunnel, key, persistence)
+    LA-->>U: hộp thư có tin của Muse
+```
+
+Điều kiện: máy ngoài đã `arm` trước (đã có sshd + TOFU + config). Không cần relay thủ công.
+
+### Flow B — "Máy tôi làm trước, rồi tự sinh prompt"
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Người dùng
+    participant LA as Agent Ngoài
+    participant MA as Agent Muse
+    U->>LA: "chuẩn bị kết nối với Muse"
+    LA->>LA: bridge.sh arm (idempotent) + bridge.sh prompt
+    LA-->>U: nội dung prompt đã render sẵn cho máy này
+    U->>MA: dán prompt
+    MA->>LA: HELLO + REPORT
+```
+
+`bridge.sh prompt` render từ `templates/MUSE_PROMPT.template.md` + mã nguồn chung, nên **prompt
+luôn khớp với mã đang chạy** — không bao giờ lệch phiên bản.
+
+### Flow C — "Muse thiếu gì thì hỏi máy tôi"
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MA as Agent Muse
+    participant LA as Agent Ngoài
+    MA->>LA: QUESTION (subject: cần gì, body: chi tiết)
+    LA-->>MA: ANSWER (reply_to = id của QUESTION)
+    MA->>LA: REPORT (đã xử lý xong)
+```
+
+### Flow D — "Giao việc"
+
+`TASK` (máy ngoài → Muse) → Muse làm → `REPORT`/`NOTE` kèm `reply_to`.
+
+---
+
+## 10. Hợp đồng lệnh của mỗi bên
+
+**Agent Ngoài** (chi tiết: `LOCAL_AGENT.md`):
+
+```bash
+bash scripts/bridge.sh arm                 # chuẩn bị máy (1 lần / máy)
+bash scripts/bridge.sh inbox [--watch]     # đọc tin gửi tới
+bash scripts/bridge.sh send --type TASK --subject "…" --body "…"
+bash scripts/bridge.sh ack <id>            # đã xử lý
+bash scripts/bridge.sh status              # trạng thái kênh
+bash scripts/bridge.sh prompt              # render prompt cho Muse
+bash scripts/bridge.sh daemon              # watcher nền (tuỳ chọn)
+```
+
+**Agent Muse** (chi tiết: `MUSE_AGENT.md`):
+
+```bash
+python3 ~/.muse-bridge/bridge.py inbox
+python3 ~/.muse-bridge/bridge.py send --type REPORT --subject "…" --body "…"
+python3 ~/.muse-bridge/bridge.py ack <id>
+python3 ~/.muse-bridge/bridge.py status
+```
+
+---
+
+## 11. Xử lý sự cố
+
+| Triệu chứng | Nguyên nhân | Cách xử lý |
+|---|---|---|
+| `PEER_STATE=DOWN` | Tunnel chết / sshd local tắt | Muse watchdog tự mở lại trong ≤10s; local: `sudo systemctl start ssh` |
+| `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin: nằm ở `outbox/pending-*`; `bridge.py sync` gửi lại |
+| `Permission denied` khi Muse ssh vào local | TOFU chưa cài, key mới | `sudo bash scripts/install_tofu_hook.sh`, hoặc Muse gửi `QUESTION` kèm `MUSE_PUBKEY` |
+| `Address already in use` (port 2222) | Tunnel cũ còn treo | Local: `ss -tlnp | grep 2222` → dừng tunnel cũ, rồi `bridge.sh push` |
+| Tin không tới | Sai spool path giữa 2 bên | `bridge.sh status` in ra `SPOOL` và `PEER`; hai bên phải trùng `spool` |
+| **sshd của Muse treo** (báo "banner exchange timeout", `127.0.0.1:2222` từ chối kết nối) | Container Muse bị đóng băng / treo tiến trình | Watchdog **v2** kiểm tra *banner* (không chỉ `pgrep`) nên tự restart được; nếu cả container không chạy (không có kết nối mới từ Muse) → **mở lại/recycle phiên Muse trong UI Meta**, container resume → hook 15s bật lại `sshd` + tunnel → `bash scripts/bridge.sh status` sẽ báo `PEER_STATE=OK` |
+
+---
+
+## 12. Mở rộng
+
+- **Thêm loại tin**: thêm tên vào `MSG_TYPES` trong `bridge/bridge.py` (hai bên dùng chung mã →
+  phải `bridge.sh push` để đồng bộ bản mới lên Muse).
+- **Thêm trường**: dùng `meta` (không cần đổi schema).
+- **Thêm năng lực cho Muse**: đặt lệnh vào `~/.muse-bridge/bundle/` trên máy Muse và gọi qua
+  `bridge.py send --type TASK`.
+- **Đổi cổng forward**: `REMOTE_PORT` trong `tunnel.conf` (Muse) và `peer.port` trong
+  `config.json` (local) — phải khớp.
+
+---
+
+## 13. Phiên bản
+
+`v: 1`. Khi đổi cấu trúc envelope hoặc bỏ bỏ loại tin → tăng `v` và hỗ trợ cả hai bên trong
+thời gian chuyển tiếp. Bản hiện tại chỉ yêu cầu: **hai bên cùng chạy `bridge.py` giống nhau**.

@@ -23,12 +23,19 @@ một việc, rồi báo tôi kết quả từng bước.
 **Bước 1 — cho phép máy tôi đăng nhập vào container của bạn.**
 
 `sshd` trong container chạy với user `root` nên nó đọc `/root/.ssh/authorized_keys` (không phải
-`~/.ssh/authorized_keys` của user `hatch`). Ghi public key của tôi vào **cả hai** file, mỗi file một
-dòng, rồi `chmod 600`:
+`~/.ssh/authorized_keys` của user `hatch`).
 
+Nhưng `/root` của container **bị xoá mỗi lần container refresh**, còn `/home/hatch` là vùng bền
+vững. Nên hãy làm theo cách này để key không mất:
+
+1. ghi key của tôi vào `/home/hatch/.ssh/authorized_keys` (vùng bền);
+2. tạo `/root/.ssh/authorized_keys` là **symlink** trỏ tới file đó, để `sshd` vẫn đọc được.
+
+```bash
+mkdir -p /home/hatch/.ssh /root/.ssh && chmod 700 /home/hatch/.ssh /root/.ssh && echo '{{LOCAL_PUBKEY}}' >> /home/hatch/.ssh/authorized_keys && chmod 600 /home/hatch/.ssh/authorized_keys && rm -f /root/.ssh/authorized_keys && ln -sf /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && echo KEY_OK
 ```
-{{LOCAL_PUBKEY}}
-```
+
+Báo tôi khi xong (dán nguyên văn dòng lỗi nếu có).
 
 **Bước 2 — bảo đảm `sshd` trong container đang chạy.**
 
@@ -42,34 +49,40 @@ Sau đó kiểm tra `sshd` thật sự trả lời (mở socket tới `127.0.0.1
 **Bước 3 — tạo helper proxy rồi thử SSH sang máy tôi.**
 
 Container của bạn **không đi thẳng ra ngoài được**: mọi kết nối ra ngoài phải qua HTTP CONNECT
-proxy nội bộ của Hatch, tên host `hatch-egress-proxy`, cổng `3130` (nếu không được thì thử `3128`).
-`user:pass` của proxy nằm trong biến `HTTPS_PROXY` — biến này thường **không có trong env của bạn**,
-nó nằm trong `/proc/<pid>/environ` của tiến trình Hatch; hãy tự dò và lấy.
+proxy nội bộ của Hatch. Proxy đó là `hatch-egress-proxy` cổng `3130` và **không cần user:pass**.
 
-Hãy tự viết một script bash `/root/.ssh/ts-proxy.sh` (nhớ `chmod +x`) làm đúng 4 việc:
-
-1. đọc `HTTPS_PROXY` từ env; nếu rỗng thì quét `/proc/*/environ` của các tiến trình `hatch` /
-   `python` / `uvicorn` cho tới khi tìm thấy biến đó;
-2. bóc `user:pass@host:port` ra, bỏ tiền tố `http://` / `https://` đi;
-3. `exec socat - "PROXY:<host>:$1:$2,proxyport=<port>"`, và thêm `,proxyauth=<user:pass>` vào cuối
-   nếu có user:pass;
-4. nếu không dò được host nào thì mặc định host `hatch-egress-proxy`, cổng `3130`.
-
-Rồi thử SSH tới máy tôi bằng helper đó (kết quả phải là `DIRECT_OK`):
+Hãy tự viết một script bash `/root/.ssh/ts-proxy.sh` (nhớ `chmod +x`) với đúng nội dung này — nó
+bọc `socat` để đi qua proxy:
 
 ```bash
-ssh -o "ProxyCommand=/root/.ssh/ts-proxy.sh %h %p" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 {{LOCAL_USER}}@{{LOCAL_HOST}} 'echo DIRECT_OK'
+exec socat - "PROXY:hatch-egress-proxy:$1:$2,proxyport=3130"
 ```
 
-Báo tôi: có ra `DIRECT_OK` không, hay lỗi gì.
+Rồi thử SSH tới máy tôi bằng helper đó (kết quả phải là `DIRECT_OK`).
+
+Lưu ý về key: `ssh` phải dùng **private key của chính bạn**. Key thường nằm ở
+`/home/hatch/.ssh/id_ed25519` (không phải `/root/.ssh/` — nơi đó có thể trống). Nếu bạn không chắc
+key của mình ở đâu, hãy tự dò (`ls ~/.ssh/id_* /home/hatch/.ssh/id_*`) rồi truyền đúng key vào `-i`.
+
+```bash
+ssh -i /home/hatch/.ssh/id_ed25519 -o "ProxyCommand=/root/.ssh/ts-proxy.sh %h %p" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 {{LOCAL_USER}}@{{LOCAL_HOST}} 'echo DIRECT_OK'
+```
+
+Báo tôi: có ra `DIRECT_OK` không, hay lỗi gì (nguyên văn dòng lỗi).
+
+> Nếu báo `Permission denied (publickey,password)` thì **đường mạng đã thông** — chỉ còn thiếu
+> key của máy tôi trong `authorized_keys` của bạn. Báo tôi, tôi sẽ tự authorize.
 
 **Bước 4 — mở reverse tunnel** để máy tôi truy cập được sshd của bạn ở cổng `{{LOCAL_PORT}}`.
 
 Tự viết một script bash `/root/.ssh/tunnel-{{LOCAL_PORT}}.sh` (chmod +x) chạy vòng lặp **vô hạn**: mỗi
-vòng thì chạy lệnh ssh dưới đây một lần, xong `sleep 10` rồi lặp lại (để tunnel tự lên lại khi chết):
+vòng thì chạy lệnh ssh dưới đây một lần, xong `sleep 10` rồi lặp lại (để tunnel tự lên lại khi chết).
+
+Dùng **cùng key đã dùng ở bước 3** (`-i` trỏ tới private key của bạn) — nếu thiếu `-i` thì ssh sẽ
+tìm key trong `/root/.ssh/` và báo `Permission denied`:
 
 ```bash
-ssh -N -R {{LOCAL_PORT}}:127.0.0.1:22 -o "ProxyCommand=/root/.ssh/ts-proxy.sh %h %p" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=15 {{LOCAL_USER}}@{{LOCAL_HOST}}
+ssh -i /home/hatch/.ssh/id_ed25519 -N -R {{LOCAL_PORT}}:127.0.0.1:22 -o "ProxyCommand=/root/.ssh/ts-proxy.sh %h %p" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=15 {{LOCAL_USER}}@{{LOCAL_HOST}}
 ```
 
 Chạy nó ở chế độ nền (nohup, log ra `/tmp/tunnel.log`).

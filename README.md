@@ -213,7 +213,9 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo | Watchdog v3 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → `bash scripts/bridge.sh repair --host <id>` (đánh thức qua web) |
 | Container bị đóng băng, không tiến trình nào chạy | Nền tảng suspend/checkpoint container | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức; daemon tự làm mỗi 5 phút |
 | Muse không đăng nhập được vào máy mình | `sshd` trong container đọc `/root/.ssh/authorized_keys`, không phải `~/.ssh/authorized_keys` của user `hatch` | Ghi key vào **cả hai** file (prompt mới đã làm sẵn) |
-| Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy`; `user:pass` nằm trong `/proc/<pid>/environ` | Dùng `bridge/ts-socat-proxy.sh` (tự dò), không tự điền tay `USER:PASS` |
+| Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |
+| `Permission denied (publickey,password)` khi SSH ra ngoài | `ssh` không tìm thấy private key của container | Thêm `-i /home/hatch/.ssh/id_ed25519` (key không nằm ở `/root/.ssh/`) |
+| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key phải nằm ở `/home/hatch/.ssh/authorized_keys` và `/root/.ssh/authorized_keys` là symlink trỏ tới |
 | Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 | `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
 

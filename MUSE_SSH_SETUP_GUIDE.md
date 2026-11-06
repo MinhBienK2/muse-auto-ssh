@@ -32,7 +32,7 @@ flowchart LR
 1. **Outbound-Only:** node Tailscale của Muse do hypervisor của Meta quản lý dạng **client-only**.
    Mọi kết nối inbound trực tiếp vào cổng 22 của Muse đều bị từ chối (`Connection refused`).
 2. **Sandbox container:** Muse chạy trong container Linux (`htch-runtime`), ra Tailnet qua HTTP
-   CONNECT proxy nội bộ `hatch-egress-proxy` (cổng `3130`, có thể `3128`).
+   CONNECT proxy nội bộ `hatch-egress-proxy` (cổng `3130`, không cần user:pass).
 3. **Giải pháp:** Muse chủ động SSH **ra ngoài** tới máy bạn và mở cổng ngược
    (`127.0.0.1:2222` → sshd trong container). Máy bạn chỉ cần `ssh -p 2222 root@127.0.0.1`.
 
@@ -40,9 +40,10 @@ flowchart LR
 
 | Vấn đề | Biểu hiện | Cách xử lý |
 |---|---|---|
-| Container không ra ngoài thẳng được | `ssh: connect to host … Operation not permitted` | Phải qua HTTP CONNECT proxy. `user:pass` nằm trong `HTTPS_PROXY` — thường **không có trong env** của agent, mà nằm trong `/proc/<pid>/environ` của tiến trình Hatch. Script `bridge/ts-socat-proxy.sh` tự dò cả proxy lẫn credential. |
+| Container không ra ngoài thẳng được | `ssh: connect to host … Operation not permitted` | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` **cổng 3130** (không cần user:pass). Script `bridge/ts-socat-proxy.sh` bọc `socat` cho việc này. |
+| `Permission denied (publickey,password)` khi SSH ra ngoài | Đường mạng đã thông, chỉ thiếu key | `ssh` phải có `-i /home/hatch/.ssh/id_ed25519` — key của container **không** nằm ở `/root/.ssh/` (thư mục đó bị xoá khi refresh). |
 | `sshd` của container treo | `banner exchange timeout` từ `127.0.0.1:2222` | `pgrep sshd` **không đủ** — phải kiểm tra sshd thật sự trả lời banner. Watchdog v3 làm đúng việc này. |
-| `sshd` đọc file key khác `~` của agent | `Permission denied` dù đã ghi `~/.ssh/authorized_keys` | `sshd` chạy user `root` → đọc `/root/.ssh/authorized_keys`. Ghi key vào **cả hai** file. |
+| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá mỗi lần refresh | Để key ở `/home/hatch/.ssh/authorized_keys` và làm `/root/.ssh/authorized_keys` là **symlink** trỏ tới. |
 
 ## 3. Tự phục hồi (thiết kế hiện hành)
 

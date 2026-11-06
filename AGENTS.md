@@ -53,8 +53,12 @@ git config core.hooksPath .githooks
 
 - `sshd` trong container Muse chạy user `root` → nó đọc `/root/.ssh/authorized_keys`, **không phải**
   `~/.ssh/authorized_keys` của user `hatch`. Sửa cả hai.
-- Container không ra ngoài thẳng được → phải qua HTTP CONNECT proxy `hatch-egress-proxy`, và
-  `user:pass` nằm trong `/proc/<pid>/environ` của tiến trình Hatch, không phải trong env của bạn.
+- Container không ra ngoài thẳng được → phải qua HTTP CONNECT proxy `hatch-egress-proxy` **cổng 3130**,
+  **không cần user:pass** (cổng 3128 thì cần token, đừng dùng).
+- Key SSH của container nằm ở **`/home/hatch/.ssh/id_ed25519`**, không phải `/root/.ssh/` (thư mục đó
+  bị xoá mỗi lần container refresh). Lệnh `ssh` **phải có `-i`** trỏ tới key đó.
+- Key của máy bạn phải nằm ở `/home/hatch/.ssh/authorized_keys` (vùng bền) và `/root/.ssh/authorized_keys`
+  nên là **symlink** trỏ tới nó — nếu không, key mất mỗi lần container refresh.
 - `check_prompt_sync.sh` so sánh `MUSE_PROMPT.md` với bản render từ **máy đang chạy** → trên máy
   khác nó sẽ FAIL. Dùng `--strict` (chỉ kiểm tra template, không phụ thuộc máy) cho CI.
 - Mỗi Muse host một cổng forward riêng **và một config riêng** (`tunnel-<port>.conf`). Dùng chung một

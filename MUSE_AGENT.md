@@ -25,15 +25,18 @@ và bạn cũng đã yêu cầu người dùng *nói từng bước bằng lời
 ## 2. Môi trường của bạn
 
 - Không có IP công khai, chỉ outbound. Mọi kết nối ra Tailscale đi qua HTTP CONNECT proxy
-  `hatch-egress-proxy` (cổng `3130`, có thể `3128`), đóng gói bằng `socat`.
-- `user:pass` của proxy nằm trong biến `HTTPS_PROXY` — nhưng biến này thường **không có trong env
-  của bạn**, nó nằm trong `/proc/<pid>/environ` của tiến trình Hatch. Hãy tự dò, đừng điền tay.
+  `hatch-egress-proxy` **cổng `3130`**, đóng gói bằng `socat`. Cổng này **không cần user:pass**
+  (đừng đi tìm token, đừng đọc `/proc` của tiến trình khác).
+- **Key của bạn nằm ở `/home/hatch/.ssh/id_ed25519`**, không phải `/root/.ssh/` (`/root` bị xoá mỗi lần
+  container refresh). Lệnh `ssh` phải có `-i /home/hatch/.ssh/id_ed25519`, nếu không sẽ báo
+  `Permission denied (publickey,password)` dù đường mạng vẫn thông.
 - Vì vậy **bạn là người chủ động mở reverse tunnel** tới máy ngoài:
   `ssh -N -R <PORT>:127.0.0.1:22 <user>@<ip may ngoài>`.
 - `HOME` của bạn là `/root`; deployment thật có thể nằm ở `/home/hatch/workspace/…`.
   Luôn **tự dò** path, không hard-code.
-- **`sshd` của bạn chạy user `root`** → nó đọc `/root/.ssh/authorized_keys`, không phải
-  `~/.ssh/authorized_keys` của user `hatch`. Ghi key vào **cả hai**.
+- **`sshd` của bạn chạy user `root`** → nó đọc `/root/.ssh/authorized_keys`. Nhưng `/root` bị xoá khi
+  refresh: hãy để key ở `/home/hatch/.ssh/authorized_keys` và làm `/root/.ssh/authorized_keys` là
+  **symlink** trỏ tới.
 
 ---
 

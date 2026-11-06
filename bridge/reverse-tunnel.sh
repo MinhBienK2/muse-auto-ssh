@@ -28,6 +28,7 @@ KEY_PATH="${KEY_PATH:-/home/hatch/.ssh/id_ed25519}"
 PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"
 LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 
+LOOP_VERSION="v5"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
@@ -68,6 +69,8 @@ ensure_sshd() {
 }
 
 log "loop start -> ${LOCAL_USER}@${LOCAL_IP}:${REMOTE_PORT} (key $KEY_PATH)"
+# ghi version de watchdog biet khi can restart (script da duoc nang cap)
+printf '%s\n' "$LOOP_VERSION" > "$(dirname "$LOG")/.loop_version" 2>/dev/null || true
 
 while true; do
   ensure_authorized_keys

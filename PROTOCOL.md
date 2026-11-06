@@ -199,6 +199,23 @@ stateDiagram-v2
     CONNECTED --> OFFLINE: tunnel chết lâu, watchdog sửa lại
 ```
 
+### 8.0. Quy tắc vàng: chat trình duyệt CHỈ dùng cho bootstrap
+
+| Việc | Kênh thực hiện |
+|---|---|
+| Dán prompt lần đầu, tạo chat, bấm "Allow" | **Chat** (chỉ khi chưa vào được máy Muse) |
+| Cài bus, watchdog, systemd, loop, config, key | **SSH** |
+| Restart tunnel, restore symlink sau refresh | **SSH** (nếu vào được) hoặc **container tự làm** (watchdog/loop) |
+| Gửi/nhận tin nhắn giữa 2 agent | **Bus** (`bridge.py`) |
+| Đánh thức container bị đóng băng/suspend | **Chat** — nhưng **hiếm, có giới hạn tần suất, phải bật tay** |
+
+> **Vì sao phải giới hạn:** gửi tin nhắn liên tục vào chat Muse bị nền tảng coi là spam →
+> **chặn session 21 giờ** (`I can't respond right now because you've asked for content that goes
+> against the rules`). Vì vậy:
+> - `bridge.sh repair` **mặc định KHÔNG** gửi tin nhắn chat; nó sửa qua SSH trước.
+> - Muốn cho tự đánh thức qua chat: `MUSE_WAKE_ALLOW=1` + tối thiểu 30 phút giữa 2 lần + tối đa 6 lần liên tiếp.
+> - Mọi bảo trì định kỳ phải đi qua SSH để không bao giờ đụng vào chat.
+
 ### 8.1. Ba rào chắn thực tế của nền tảng Muse (đã gặp, đã xử lý)
 
 | Rào chắn | Biểu hiện | Cách xử lý trong thiết kế này |

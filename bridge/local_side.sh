@@ -440,13 +440,17 @@ cmd_daemon() {
   trap '[ -n "${SYNC_PID:-}" ] && kill "$SYNC_PID" 2>/dev/null; [ -n "${REPAIR_PID:-}" ] && kill "$REPAIR_PID" 2>/dev/null' EXIT INT TERM
   # vong lap auto-repair (nen): moi 5 phut, host nao chet -> gui tin nhan web de danh thuc container
   ( while true; do
-      sleep 300
+      sleep 600
       local ids; ids="$(host_ids)"
       for id in $ids; do
         local p; p="$(host_peer_port "$id")"
         if ! host_reachable "$p"; then
-          say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
-          HOST="$id" cmd_repair >>"$log" 2>&1 || true
+          if [ "${MUSE_WAKE_ALLOW:-0}" = "1" ]; then
+            say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
+            HOST="$id" cmd_repair >>"$log" 2>&1 || true
+          else
+            say "canh host '$id' (port $p) khong phan hoi (tu danh thuc qua web: TAT)"
+          fi
         elif ! muse_bus_present "$p"; then
           say "auto-reprovision: host '$id' (port $p) da refresh, bus bi mat -> provision lai"
           HOST="$id" cmd_reprovision >>"$log" 2>&1 || true
@@ -630,6 +634,52 @@ cmd_reprovision() {
   cmd_status
 }
 
+# --- gioi han tan so tin nhan gui vao chat Muse (nenh tang chan spam) ----------
+REPAIR_MIN_INTERVAL="${REPAIR_MIN_INTERVAL:-1800}"   # 30 phut giua 2 lan nhac
+REPAIR_MAX_TRIES="${REPAIR_MAX_TRIES:-6}"            # toi da 6 lan lien tiep
+
+repair_gate() {
+  # 0 = duoc phep gui tin nhan danh thuc container; 1 = bo qua (tranh spam)
+  local state="$STATE_DIR/repair-$HOST.state"
+  local now last tries
+  now=$(date +%s)
+  last=$(cat "$state.last" 2>/dev/null || echo 0)
+  tries=$(cat "$state.tries" 2>/dev/null || echo 0)
+  if [ $((now - last)) -lt "$REPAIR_MIN_INTERVAL" ]; then return 1; fi
+  if [ "$tries" -ge "$REPAIR_MAX_TRIES" ]; then return 1; fi
+  echo "$now" > "$state.last"
+  echo $((tries + 1)) > "$state.tries"
+  return 0
+}
+
+repair_gate_reset() {
+  rm -f "$STATE_DIR/repair-$HOST.state.last" "$STATE_DIR/repair-$HOST.state.tries"
+}
+
+# --- sua chua qua SSH (khong bao gio dung chat) --------------------------------
+muse_repair_over_ssh() {
+  local port="$1"
+  local ts_ip="$2"
+  local spool="$3"
+  host_reachable "$port" || return 1
+
+  say "SSH vao duoc -> sua qua SSH (khong gui tin nhan vao chat)"
+
+  # 1) khoi phuc symlink ben vung (truong hop container vua refresh)
+  ssh_host "$port" 'mkdir -p /root/.ssh /home/hatch/.ssh && chmod 700 /root/.ssh /home/hatch/.ssh 2>/dev/null; if [ -f /home/hatch/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys; fi; true' >/dev/null 2>&1 || true
+
+  # 2) day lai bundle + chay setup (idempotent): bus, config, watchdog, loop, systemd
+  muse_provision "$port" "$ts_ip" "$spool"
+
+  # 3) dam bao supervisor dang chay (systemd/loop)
+  ssh_host "$port" "systemctl restart muse-reverse-tunnel-$port.service 2>/dev/null || true; pgrep -af '[s]sh -N -R $port:' | head -2" 2>/dev/null | sed 's/^/    /' || true
+
+  # 4) dong bo tin hai chieu
+  bus_py pull >/dev/null 2>&1 || true
+  bus_py sync >/dev/null 2>&1 || true
+  return 0
+}
+
 # ------------------------------------------------------------------ repair (auto-wake)
 cmd_repair() {
   parse_flags "$@"
@@ -639,9 +689,28 @@ cmd_repair() {
   local thread; thread="$(card_field "$HOST" "thread")"
 
   if host_reachable "$port"; then
+    repair_gate_reset
     say "host '$HOST' (port $port): kenh da song, khong can sua"
     cmd_status
     return 0
+  fi
+  # uu tien 1: sua hoan toan qua SSH (KHONG dung chat)
+  if muse_repair_over_ssh "$port" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"; then
+    repair_gate_reset
+    say "da sua qua SSH xong"
+    cmd_status
+    return 0
+  fi
+
+  # chi khi that su khong vao duoc container moi can chat (bootstrap/đánh thức)
+  if [ "${MUSE_WAKE_ALLOW:-0}" != "1" ]; then
+    warn "tu danh thuc qua web: TAT (mac dinh). Bat bang: MUSE_WAKE_ALLOW=1 bash scripts/bridge.sh repair --host $HOST"
+    warn "Ly do: gui tin nhan lien tuc vao chat Muse bi nen tang chan (spam) -> chan session."
+    return 1
+  fi
+  if ! repair_gate; then
+    say "host '$HOST': bo qua nhac (gioi han tan so - lan truoc < ${REPAIR_MIN_INTERVAL}s hoac da thu het ${REPAIR_MAX_TRIES} lan)"
+    return 1
   fi
 
   if [ -z "$thread" ]; then

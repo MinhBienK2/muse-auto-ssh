@@ -59,6 +59,15 @@ if [ -d /run/systemd/system ]; then
             systemctl start "$UNIT" >/dev/null 2>&1 || true
     fi
 fi
+# 3) script loop da duoc nang cap (version khac) -> restart de dung code moi
+WANT="$(grep -o 'LOOP_VERSION="[^"]*"' "%(loop)s" 2>/dev/null | head -1)"
+HAVE="$(cat "$(dirname "%(log)s")/.loop_version" 2>/dev/null | head -1)"
+if [ -n "$WANT" ] && [ "$WANT" != "$HAVE" ]; then
+    pkill -f "[b]ash %(loop)s" >/dev/null 2>&1 || true
+    pkill -f "[s]sh -N -R %(port)s:" >/dev/null 2>&1 || true
+    sleep 1
+    HAVE=""
+fi
 if ! pgrep -f 'ssh -N -R %(port)s:' >/dev/null 2>&1; then
     if ! systemctl is-active --quiet "$UNIT" 2>/dev/null; then
         nohup /bin/bash %(loop)s >> %(log)s >/dev/null 2>&1 &

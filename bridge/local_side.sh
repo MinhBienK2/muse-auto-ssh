@@ -255,6 +255,8 @@ muse_provision() {
   ssh_host_push "$port" "$SCRIPT_DIR/muse_side.sh" "cat > /root/.muse-bridge/muse_side.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > /root/.muse-bridge/inject_watchdog.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > /root/.muse-bridge/ts-socat-proxy.sh" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > /root/.muse-bridge/reverse-tunnel.sh" || true
+  ssh_host "$port" "chmod 700 /root/.muse-bridge/reverse-tunnel.sh /root/.muse-bridge/ts-socat-proxy.sh" >/dev/null 2>&1 || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
 
   # chay setup phia Muse (sshd, loop tunnel, watchdog, config bus, HELLO/REPORT)
@@ -414,7 +416,21 @@ cmd_daemon() {
       sleep 10
     done ) &
   SYNC_PID=$!
-  trap '[ -n "${SYNC_PID:-}" ] && kill "$SYNC_PID" 2>/dev/null' EXIT INT TERM
+  trap '[ -n "${SYNC_PID:-}" ] && kill "$SYNC_PID" 2>/dev/null; [ -n "${REPAIR_PID:-}" ] && kill "$REPAIR_PID" 2>/dev/null' EXIT INT TERM
+  # vong lap auto-repair (nen): moi 5 phut, host nao chet -> gui tin nhan web de danh thuc container
+  ( while true; do
+      sleep 300
+      local ids; ids="$(host_ids)"
+      for id in $ids; do
+        local p; p="$(host_peer_port "$id")"
+        if ! host_reachable "$p"; then
+          say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
+          HOST="$id" cmd_repair >>"$log" 2>&1 || true
+        fi
+      done
+    done ) &
+  REPAIR_PID=$!
+
   bus_py inbox --watch --interval "$interval" 2>/dev/null | while IFS= read -r line; do
     [ -z "$line" ] && continue
     printf '%s %s\n' "$(date -Is)" "$line" >> "$log"
@@ -566,6 +582,52 @@ cmd_onboard() {
   python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port"
 }
 
+# ------------------------------------------------------------------ repair (auto-wake)
+cmd_repair() {
+  parse_flags "$@"
+  require_host
+  local port; port="$(host_peer_port "$HOST")"
+  local dir="$REPO_HOSTS_DIR/$HOST"
+  local thread; thread="$(card_field "$HOST" "thread")"
+
+  if host_reachable "$port"; then
+    say "host '$HOST' (port $port): kenh da song, khong can sua"
+    cmd_status
+    return 0
+  fi
+
+  if [ -z "$thread" ]; then
+    warn "host '$HOST' chua luu thread web -> khong tu danh thuc duoc."
+    warn "Mo https://muse.ai/ va day len chat cua Agent Muse:"
+    warn "  \"Kenh SSH toi may toi bi tat. Ban hay mo lai reverse tunnel cong $port (dung lenh da dung truoc do) roi bao toi.\""
+    return 1
+  fi
+
+  say "kenh chet -> gui tin nhan danh thuc container '$HOST'..."
+  mkdir -p "$dir"
+  local msg="$dir/repair.txt"
+  printf '%s\n' \
+    "Kênh SSH từ container của bạn sang máy tôi đang chết (cổng $port). Bạn hãy mở lại reverse tunnel cổng $port bằng đúng lệnh bạn đã dùng lần trước (nếu bị mất thì dùng lại: ssh -N -R $port:127.0.0.1:22 với ProxyCommand qua hatch-egress-proxy, kèm -i /home/hatch/.ssh/id_ed25519), chạy nền bằng nohup, rồi báo tôi kết quả." > "$msg"
+
+  local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|2223|2222")"
+  echo "$out" >> "$dir/repair.log" 2>/dev/null || true
+
+  say "cho container phuc hoi (toi da 120s)..."
+  local i
+  for i in $(seq 1 24); do
+    sleep 5
+    if host_reachable "$port"; then
+      say "DA PHAI HOI: kenh song lai (port $port)"
+      push_bundle "$port" || true
+      bus_py pull >/dev/null 2>&1 || true
+      cmd_status
+      return 0
+    fi
+  done
+  warn "container chua phuc hoi trong 120s. Hay mo chat tren muse.ai va xem agent da bao gi."
+  return 1
+}
+
 # ------------------------------------------------------------------ doctor
 cmd_doctor() {
   parse_flags "$@"
@@ -607,6 +669,7 @@ case "${1:-}" in
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
+  repair)   shift; cmd_repair "$@" ;;
   provision) shift; parse_flags "$@"; require_host
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true

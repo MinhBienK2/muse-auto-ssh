@@ -14,8 +14,18 @@ TARGET_HOST="${1:?target host}"
 TARGET_PORT="${2:?target port}"
 
 # --- lay HTTPS_PROXY (ke ca user:pass) ---------------------------------------
+# uu tien ban HTTPS_PROXY co user:pass (agent shell), neu khong co thi quet /proc
+if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"@"* ]]; then
+  for p in $(pgrep -u root -f "python|bash|uvicorn|node|hatch" 2>/dev/null); do
+    hp=$(cat /proc/$p/environ 2>/dev/null | tr "\0" "\n" | grep -m1 "^HTTPS_PROXY=" || true)
+    if [ -n "$hp" ] && [[ "$hp" == *"@"* ]]; then
+      eval "export $hp"
+      break
+    fi
+  done
+fi
 if [ -z "${HTTPS_PROXY:-}" ] || [[ "${HTTPS_PROXY}" != *"://"* ]]; then
-  for p in $(pgrep -u root -f "python|bash|uvicorn|node" 2>/dev/null); do
+  for p in $(pgrep -u root -f "python|bash|uvicorn|node|hatch" 2>/dev/null); do
     hp=$(cat /proc/$p/environ 2>/dev/null | tr "\0" "\n" | grep -m1 "^HTTPS_PROXY=" || true)
     if [ -n "$hp" ] && [[ "$hp" == *"://"* ]]; then
       eval "export $hp"

@@ -29,6 +29,7 @@ case "${1:-}" in
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;
+  repair)    shift; bash "$LOCAL_SIDE" repair "$@" ;;
   arm)       shift; bash "$LOCAL_SIDE" arm "$@" ;;
   status)    shift; bash "$LOCAL_SIDE" status "$@" ;;
   inbox)     shift; bash "$LOCAL_SIDE" inbox "$@" ;;

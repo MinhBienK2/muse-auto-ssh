@@ -113,49 +113,21 @@ ensure_proxy() {
 ensure_loop() {
   # Loop rieng cho tung port: reverse-tunnel-<port>.sh (nhieu Muse host tren cung may)
   local target="$BASE/tunnel/reverse-tunnel-$LOCAL_PORT.sh"
+  local src="$SCRIPT_DIR/reverse-tunnel.sh"
   mkdir -p "$(dirname "$target")"
-  if [ -f "$target" ] && grep -q "REMOTE_PORT=\"$LOCAL_PORT\"" "$target" 2>/dev/null; then
-    say "loop script: $target (da co)"
-  else
-    say "tao loop script: $target (port $LOCAL_PORT)"
-    local tmp="$target.tmp.$$"
-    cat > "$tmp" <<RT_EOF
-#!/bin/bash
-# Vong lap tu reconnect reverse SSH tunnel: Muse -> may ngoai (port $LOCAL_PORT)
-set -u
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="\${SCRIPT_DIR}/tunnel.conf"
-[ -f "\$CONFIG_FILE" ] && source "\$CONFIG_FILE"
-LOCAL_USER="\${LOCAL_USER:-minhbien}"
-LOCAL_IP="\${LOCAL_IP:-100.120.205.53}"
-REMOTE_PORT="$LOCAL_PORT"
-KEY_PATH="\${KEY_PATH:-\$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519}"
-PROXY_PATH="\${PROXY_PATH:-\$SCRIPT_DIR/ts-socat-proxy.sh}"
-if [ ! -f "\$KEY_PATH" ] && [ -f "\$HOME/.ssh/id_ed25519" ]; then
-  KEY_PATH="\$HOME/.ssh/id_ed25519"
-fi
-echo "[\$(date '+%F %T')] reverse tunnel -> \${LOCAL_USER}@\${LOCAL_IP}:\${REMOTE_PORT}"
-while true; do
-  mkdir -p /run/sshd /var/run/sshd
-  if ! pgrep -x sshd >/dev/null 2>&1; then
-    /usr/sbin/sshd 2>/dev/null || true
+  if [ ! -f "$src" ]; then
+    warn "khong tim thay $src - dung loop script co san"
+    [ -f "$target" ] && LOOP="$target"
+    return 0
   fi
-  ssh -N -R "\${REMOTE_PORT}:127.0.0.1:22" \\
-    -o "ProxyCommand=\${PROXY_PATH} %h %p" \\
-    -o StrictHostKeyChecking=no \\
-    -o UserKnownHostsFile=/dev/null \\
-    -o BatchMode=yes \\
-    -o ExitOnForwardFailure=yes \\
-    -o ServerAliveInterval=15 \\
-    -o ServerAliveCountMax=3 \\
-    -o ConnectTimeout=10 \\
-    -i "\$KEY_PATH" "\${LOCAL_USER}@\${LOCAL_IP}"
-  echo "[\$(date '+%F %T')] tunnel exit (\$?). reconnect sau 10s"
-  sleep 10
-done
-RT_EOF
-    chmod +x "$tmp"
+  local tmp="$target.tmp.$$"
+  install -m 0755 "$src" "$tmp"
+  if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    say "loop script: $target (da co, dung phien ban)"
+  else
     mv -f "$tmp" "$target"
+    say "loop script: $target (da cap nhat)"
   fi
   LOOP="$target"
 }
@@ -203,6 +175,57 @@ EOF
   fi
 }
 
+ensure_systemd_unit() {
+  # systemd la supervisor CHINH cho tunnel (Hatch hook chi giam sat).
+  command -v systemctl >/dev/null 2>&1 || return 1
+  # is-system-running tra exit != 0 khi system "degraded" -> dung /run/systemd/system de kiem tra
+  [ -d /run/systemd/system ] || return 1
+  local unit="/etc/systemd/system/muse-reverse-tunnel-$LOCAL_PORT.service"
+  local tmp="$unit.tmp.$$"
+  cat > "$tmp" <<EOF
+[Unit]
+Description=Muse reverse SSH tunnel (port $LOCAL_PORT) - may ngoai
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c "mkdir -p /run/sshd /var/run/sshd"
+ExecStart=/bin/bash $LOOP
+Restart=always
+RestartSec=10
+StandardOutput=append:$BASE/tunnel/tunnel.log
+StandardError=append:$BASE/tunnel/tunnel.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  if [ -f "$unit" ] && cmp -s "$tmp" "$unit"; then
+    rm -f "$tmp"
+  else
+    mv -f "$tmp" "$unit"
+  fi
+  systemctl daemon-reload >/dev/null 2>&1
+  systemctl enable "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1
+  # CHI MOT supervisor: stop service -> tat moi loop cu -> start lai service
+  systemctl stop "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1 || true
+  # don dep unit generic cu (neu co) de khong tranh cong
+  if [ "$LOCAL_PORT" != "2222" ] && systemctl list-unit-files 2>/dev/null | grep -q "^muse-reverse-tunnel.service"; then
+    systemctl disable --now muse-reverse-tunnel.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/muse-reverse-tunnel.service
+  fi
+  pkill -f "[r]everse-tunnel-${LOCAL_PORT}.sh" >/dev/null 2>&1 || true
+  pkill -f "[s]sh -N -R ${LOCAL_PORT}:" >/dev/null 2>&1 || true
+  sleep 1
+  systemctl start "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1
+  sleep 3
+  if systemctl is-active --quiet "muse-reverse-tunnel-$LOCAL_PORT.service"; then
+    say "systemd unit: muse-reverse-tunnel-$LOCAL_PORT.service active+enabled (supervisor chinh)"
+  else
+    warn "systemd unit khong len duoc - xem $BASE/tunnel/tunnel.log"
+  fi
+  return 0
+}
+
 ensure_persistence() {
   local hook
   hook=""
@@ -215,9 +238,9 @@ ensure_persistence() {
     PERSISTENCE="none"
     return
   fi
-  if grep -q "muse-bridge watchdog v2" "$hook"; then
+  if grep -q "muse-bridge watchdog v3" "$hook"; then
     PERSISTENCE="hatch-hook(15s)"
-    say "watchdog v2: da co trong $hook"
+    say "watchdog v3: da co trong $hook"
     return
   fi
   say "inject/nang cap watchdog vao $hook"
@@ -303,6 +326,7 @@ cmd_setup() {
   authorize_local_key
   ensure_tunnel
   ensure_persistence
+  ensure_systemd_unit || true
   write_config
 
   # HELLO + REPORT gui sang may ngoai

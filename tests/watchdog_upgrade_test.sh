@@ -35,7 +35,7 @@ python3 "$INJECT" "$HOOK" "/home/hatch/workspace/muse-platform-setup/tunnel/reve
   "minhbien" "100.120.205.53" >/dev/null
 check "inject chay khong loi" $?
 
-grep -q "muse-bridge watchdog v2" "$HOOK"
+grep -q "muse-bridge watchdog v3" "$HOOK"
 check "co block v2" $?
 grep -q "Auto keep SSH and G3 Reverse Tunnel alive" "$HOOK"
 if [ $? -eq 0 ]; then echo "  FAIL - block v1 con lai"; fails=$((fails+1)); else echo "  ok   - block v1 da bi go"; fi
@@ -52,7 +52,7 @@ python3 "$INJECT" "$HOOK" "/home/hatch/workspace/muse-platform-setup/tunnel/reve
 diff -q "$TMP/hook.after1" "$HOOK" >/dev/null
 check "inject lai khong doi file (idempotent)" $?
 
-n=$(grep -c "muse-bridge watchdog v2] BEGIN" "$HOOK")
+n=$(grep -c "muse-bridge watchdog v3] BEGIN" "$HOOK")
 [ "$n" = "1" ]
 check "chi co 1 block v2" $?
 

@@ -15,11 +15,11 @@ import os
 import re
 import sys
 
-BEGIN = "# [muse-bridge watchdog v2] BEGIN"
-END = "# [muse-bridge watchdog v2] END"
+BEGIN = "# [muse-bridge watchdog v3] BEGIN"
+END = "# [muse-bridge watchdog v3] END"
 
 BLOCK = """
-# [muse-bridge watchdog v2] BEGIN
+# [muse-bridge watchdog v3] BEGIN
 mkdir -p /run/sshd /var/run/sshd
 # 1) sshd phai TRA LOI duoc banner tren :22 (pgrep khong du - sshd treo van bi bo qua)
 if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH; then
@@ -27,28 +27,18 @@ if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/nul
     sleep 1
     /usr/sbin/sshd >/dev/null 2>&1 || true
 fi
-# 2) tunnel phai TON TAI va KET NOI DUOC (probe toi may ngoai, toi da 60s mot lan)
-if ! pgrep -f 'ssh -N -R' >/dev/null 2>&1; then
-    nohup /bin/bash %(loop)s >> %(log)s >/dev/null 2>&1 &
+# 2) dam bao co MOT supervisor cho tunnel:
+#    - co systemd -> service la chinh, hook chi kick no
+#    - khong co systemd -> hook tu chay loop
+if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+    systemctl is-active --quiet muse-reverse-tunnel.service 2>/dev/null || \
+        systemctl start muse-reverse-tunnel.service >/dev/null 2>&1 || true
 else
-    now=$(date +%%s); last=$(cat /tmp/muse-probe-last 2>/dev/null || echo 0)
-    if [ $((now - last)) -ge 60 ]; then
-        echo $now > /tmp/muse-probe-last
-        if ! timeout 25 ssh -n -o "ProxyCommand=%(proxy)s %%h %%p" -o BatchMode=yes \\
-             -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\
-             -i %(key)s %(user)s@%(host)s true >/dev/null 2>&1; then
-            n=$(cat /tmp/muse-probe-fails 2>/dev/null || echo 0); n=$((n+1)); echo $n > /tmp/muse-probe-fails
-            if [ "$n" -ge 2 ]; then
-                echo 0 > /tmp/muse-probe-fails
-                pkill -f 'ssh -N -R' >/dev/null 2>&1 || true
-                nohup /bin/bash %(loop)s >> %(log)s >/dev/null 2>&1 &
-            fi
-        else
-            echo 0 > /tmp/muse-probe-fails
-        fi
+    if ! pgrep -f 'ssh -N -R' >/dev/null 2>&1; then
+        nohup /bin/bash %(loop)s >> %(log)s >/dev/null 2>&1 &
     fi
 fi
-# [muse-bridge watchdog v2] END
+# [muse-bridge watchdog v3] END
 """
 
 
@@ -66,13 +56,14 @@ def main(argv: list) -> int:
 
     for pat in (
         r"\n?# \[Self-healing: Auto keep SSH and G3 Reverse Tunnel alive\].*?reverse-tunnel.*?\nfi\n",
-        r"\n?# \[muse-bridge watchdog v2\] BEGIN.*?# \[muse-bridge watchdog v2\] END\n",
+        r"\n?# \[muse-bridge watchdog v3\] BEGIN.*?# \[muse-bridge watchdog v3\] END\n",
     ):
         content = re.sub(pat, "", content, flags=re.S)
 
+        log = loop.rsplit("/", 1)[0] + "/tunnel.log"
     inject = BLOCK % {
         "loop": loop,
-        "log": loop.rsplit("/", 1)[0] + "/tunnel.log",
+        "log": log,
         "key": key,
         "proxy": proxy,
         "user": user,

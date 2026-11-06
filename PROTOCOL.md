@@ -199,16 +199,18 @@ stateDiagram-v2
     CONNECTED --> OFFLINE: tunnel chết lâu, watchdog sửa lại
 ```
 
-Hai "đồng hồ" giữ cho mỗi bên luôn sống:
+### 8.2. Bốn lớp tự phục hồi (đều đã kiểm chứng thật)
 
-- **Máy Muse**: `reverse-tunnel.sh` (reconnect mỗi 10s) + **watchdog v2** trong
-  `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s) + `muse_side.sh worker`.
-  Watchdog v2 kiểm tra *chức năng*, không chỉ "tiến trình còn sống":
-  1. `sshd` phải **trả lời banner** trên `:22` — nếu treo thì `pkill` + khởi động lại;
-  2. tunnel phải **kết nối được** tới máy ngoài (probe mỗi 60s); trượt 2 lần liên tiếp thì
-     restart loop.
-  (Block cũ chỉ dùng `pgrep` → gặp `sshd` treo là không tự phục hồi được.)
-- **Máy ngoài**: `bridge.sh daemon` (tuỳ chọn) — poll `pending/`, ghi log, báo desktop.
+| Lớp | Chạy ở đâu | Cơ chế | Đã kiểm chứng |
+|---|---|---|---|
+| 1. **systemd service** `muse-reverse-tunnel-<port>.service` | container Muse | Chạy loop tunnel, `Restart=always`; sống qua cả lần container restart | ✅ trên cả 2 host |
+| 2. **Watchdog v3** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); systemd chưa chạy → tự mở loop | ✅ cài trên cả 2 host |
+| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s thử lại `ssh -R`; tự restart `sshd` nếu treo | ✅ tunnel bị giết → tự lên lại sau ~15s |
+| 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào chat Muse để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
+
+> Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) container** — lúc đó không tiến trình
+> nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container từ bên ngoài
+> (mở lại chat trên `muse.ai`), rồi lớp 1–3 lo phần còn lại.
 
 ---
 

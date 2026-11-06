@@ -55,12 +55,7 @@ detect_proxy() {
 }
 
 detect_loop() {
-  local cand
-  for cand in "$BASE/tunnel/reverse-tunnel-g3.sh" "$BASE/tunnel/reverse-tunnel.sh" \
-              "$HOME/workspace/muse-platform-setup/tunnel/reverse-tunnel.sh"; do
-    if [ -f "$cand" ]; then LOOP="$cand"; return 0; fi
-  done
-  LOOP="$BASE/tunnel/reverse-tunnel.sh"
+  LOOP="$BASE/tunnel/reverse-tunnel-$LOCAL_PORT.sh"
   return 1
 }
 
@@ -125,48 +120,53 @@ TS_EOF
 }
 
 ensure_loop() {
-  mkdir -p "$(dirname "$LOOP")"
-  if [ ! -f "$LOOP" ]; then
-    say "tao loop script: $LOOP"
-    cat > "$LOOP" <<'RT_EOF'
+  # Loop rieng cho tung port: reverse-tunnel-<port>.sh (nhieu Muse host tren cung may)
+  local target="$BASE/tunnel/reverse-tunnel-$LOCAL_PORT.sh"
+  mkdir -p "$(dirname "$target")"
+  if [ -f "$target" ] && grep -q "REMOTE_PORT=\"$LOCAL_PORT\"" "$target" 2>/dev/null; then
+    say "loop script: $target (da co)"
+  else
+    say "tao loop script: $target (port $LOCAL_PORT)"
+    local tmp="$target.tmp.$$"
+    cat > "$tmp" <<RT_EOF
 #!/bin/bash
-# Vong lap tu reconnect reverse SSH tunnel: Muse -> may ngoai
+# Vong lap tu reconnect reverse SSH tunnel: Muse -> may ngoai (port $LOCAL_PORT)
 set -u
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/tunnel.conf"
-[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
-LOCAL_USER="${LOCAL_USER:-minhbien}"
-LOCAL_IP="${LOCAL_IP:-100.120.205.53}"
-REMOTE_PORT="${REMOTE_PORT:-2222}"
-KEY_PATH="${KEY_PATH:-$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519}"
-PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"
-if [ ! -f "$KEY_PATH" ] && [ -f "$HOME/.ssh/id_ed25519" ]; then
-  KEY_PATH="$HOME/.ssh/id_ed25519"
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="\${SCRIPT_DIR}/tunnel.conf"
+[ -f "\$CONFIG_FILE" ] && source "\$CONFIG_FILE"
+LOCAL_USER="\${LOCAL_USER:-minhbien}"
+LOCAL_IP="\${LOCAL_IP:-100.120.205.53}"
+REMOTE_PORT="$LOCAL_PORT"
+KEY_PATH="\${KEY_PATH:-\$HOME/workspace/muse-platform-setup/keys/muse-agent-ed25519}"
+PROXY_PATH="\${PROXY_PATH:-\$SCRIPT_DIR/ts-socat-proxy.sh}"
+if [ ! -f "\$KEY_PATH" ] && [ -f "\$HOME/.ssh/id_ed25519" ]; then
+  KEY_PATH="\$HOME/.ssh/id_ed25519"
 fi
-echo "[$(date '+%F %T')] reverse tunnel -> ${LOCAL_USER}@${LOCAL_IP}:${REMOTE_PORT}"
+echo "[\$(date '+%F %T')] reverse tunnel -> \${LOCAL_USER}@\${LOCAL_IP}:\${REMOTE_PORT}"
 while true; do
   mkdir -p /run/sshd /var/run/sshd
   if ! pgrep -x sshd >/dev/null 2>&1; then
     /usr/sbin/sshd 2>/dev/null || true
   fi
-  ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
-    -o "ProxyCommand=${PROXY_PATH} %h %p" \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o BatchMode=yes \
-    -o ExitOnForwardFailure=yes \
-    -o ServerAliveInterval=15 \
-    -o ServerAliveCountMax=3 \
-    -o ConnectTimeout=10 \
-    -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}"
-  echo "[$(date '+%F %T')] tunnel exit ($?). reconnect sau 10s"
+  ssh -N -R "\${REMOTE_PORT}:127.0.0.1:22" \\
+    -o "ProxyCommand=\${PROXY_PATH} %h %p" \\
+    -o StrictHostKeyChecking=no \\
+    -o UserKnownHostsFile=/dev/null \\
+    -o BatchMode=yes \\
+    -o ExitOnForwardFailure=yes \\
+    -o ServerAliveInterval=15 \\
+    -o ServerAliveCountMax=3 \\
+    -o ConnectTimeout=10 \\
+    -i "\$KEY_PATH" "\${LOCAL_USER}@\${LOCAL_IP}"
+  echo "[\$(date '+%F %T')] tunnel exit (\$?). reconnect sau 10s"
   sleep 10
 done
 RT_EOF
-    chmod +x "$LOOP"
-  else
-    say "loop script: $LOOP (da co)"
+    chmod +x "$tmp"
+    mv -f "$tmp" "$target"
   fi
+  LOOP="$target"
 }
 
 ensure_key() {
@@ -190,14 +190,19 @@ ensure_tunnel() {
   cat > "$BASE/tunnel/tunnel.conf" <<EOF
 LOCAL_IP="$LOCAL_HOST"
 LOCAL_USER="$LOCAL_USER"
-REMOTE_PORT="2222"
+REMOTE_PORT="$LOCAL_PORT"
 KEY_PATH="$KEY"
 PROXY_PATH="$PROXY"
 EOF
-  if pgrep -af 'ssh -N -R' >/dev/null 2>&1; then
+  if pgrep -af "ssh -N -R $LOCAL_PORT:" >/dev/null 2>&1; then
     TUNNEL_STATE="ADOPTED"
-    say "tunnel: ADOPT (process dang chay, khong restart)"
-    pgrep -af 'ssh -N -R' | sed 's/^/    /'
+    say "tunnel: ADOPT (port $LOCAL_PORT da chay, khong restart)"
+    pgrep -af "ssh -N -R $LOCAL_PORT:" | sed 's/^/    /'
+  elif pgrep -af 'ssh -N -R' >/dev/null 2>&1; then
+    warn "co tunnel khac dang chay (khac port) - se mo them tunnel cho port $LOCAL_PORT"
+    TUNNEL_STATE="STARTED"
+    nohup /bin/bash "$LOOP" >> "$BASE/tunnel/tunnel.log" 2>&1 </dev/null &
+    sleep 3
   else
     TUNNEL_STATE="STARTED"
     say "tunnel: STARTED"
@@ -273,6 +278,7 @@ MUSE_BASE=$BASE
 MUSE_KEY=$keypath
 MUSE_PUBKEY=$(cat "${KEY}.pub" 2>/dev/null)
 MUSE_TUNNEL=${TUNNEL_STATE:-UNKNOWN}/$tunnel
+MUSE_TUNNEL_PORT=$LOCAL_PORT
 MUSE_PERSISTENCE=$persistence
 MUSE_PROBE=$probe
 EOF
@@ -287,6 +293,7 @@ cmd_setup() {
       --local-user)   LOCAL_USER="$2"; shift 2 ;;
       --local-pubkey) LOCAL_PUBKEY="$2"; shift 2 ;;
       --local-spool)  LOCAL_SPOOL="$2"; shift 2 ;;
+      --local-port)   LOCAL_PORT="$2"; shift 2 ;;
       *) die "tham so la: $1" ;;
     esac
   done
@@ -316,6 +323,7 @@ MUSE_BASE=$BASE
 MUSE_KEY=$KEY
 MUSE_PUBKEY=$(cat "${KEY}.pub" 2>/dev/null)
 MUSE_TUNNEL=${TUNNEL_STATE:-UNKNOWN}
+MUSE_TUNNEL_PORT=$LOCAL_PORT
 MUSE_PERSISTENCE=${PERSISTENCE:-unknown}
 MUSE_PROXY=$PROXY
 MUSE_LOOP=$LOOP

@@ -7,7 +7,7 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fails=0
 
-for t in bus_selftest.sh watchdog_upgrade_test.sh muse_side_test.sh; do
+for t in bus_selftest.sh watchdog_upgrade_test.sh muse_side_test.sh hosts_test.sh; do
   echo "=============================================================="
   echo "== $t"
   echo "=============================================================="

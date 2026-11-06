@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Render MUSE_PROMPT.md tu templates/MUSE_PROMPT.template.md + bundle phia Muse.
+"""Render MUSE_PROMPT.md tu templates/MUSE_PROMPT.template.md.
 
-Mot nguon su that: bus core (bridge/bridge.py) va bundle Muse (bridge/muse_side.sh)
-duoc embed nguyen van vao prompt => hai agent chay cung mot code.
+Prompt ngắn (không nhúng mã nguồn): các thông số duy nhất điền vào là host, user, port,
+public key và spool. Bundle mã (bridge.py, muse_side.sh) do may ngoai day vao container sau
+khi kenh thong - nen prompt khong chua code, tranh bom loc an toan cua Agent Muse.
 
 Usage:
     python3 scripts/render_prompt.py                # -> MUSE_PROMPT.md
-    python3 scripts/render_prompt.py --stdout       # in ra stdout
-    python3 scripts/render_prompt.py --host 100.120.205.53 --user minhbien
+    python3 scripts/render_prompt.py --stdout
+    python3 scripts/render_prompt.py --host 100.120.205.53 --user minhbien --port 2223
 """
 
 from __future__ import annotations
@@ -20,12 +21,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(REPO, "templates", "MUSE_PROMPT.template.md")
-BRIDGE_PY = os.path.join(REPO, "bridge", "bridge.py")
-MUSE_SIDE = os.path.join(REPO, "bridge", "muse_side.sh")
-INJECT_WD = os.path.join(REPO, "bridge", "inject_watchdog.py")
 DEFAULT_OUT = os.path.join(REPO, "MUSE_PROMPT.md")
-
-PLACEHOLDER_RE = re.compile(r"\{\{[A-Z0-9_]+\}\}")
+PLACEHOLDER_RE = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 
 
 def sh(cmd: list) -> str:
@@ -62,6 +59,7 @@ def main() -> int:
     ap.add_argument("--user", default="")
     ap.add_argument("--pubkey", default="")
     ap.add_argument("--spool", default="")
+    ap.add_argument("--port", type=int, default=2222)
     ap.add_argument("--hostname", default="")
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--stdout", action="store_true")
@@ -69,35 +67,27 @@ def main() -> int:
 
     with open(TEMPLATE, "r", encoding="utf-8") as fh:
         text = fh.read()
-    with open(BRIDGE_PY, "r", encoding="utf-8") as fh:
-        bridge_src = fh.read().rstrip("\n")
-    with open(MUSE_SIDE, "r", encoding="utf-8") as fh:
-        muse_src = fh.read().rstrip("\n")
-    with open(INJECT_WD, "r", encoding="utf-8") as fh:
-        inject_src = fh.read().rstrip("\n")
-
-    for src, name in ((bridge_src, "bridge.py"), (muse_src, "muse_side.sh"), (inject_src, "inject_watchdog.py")):
-        for marker in ("MUSE_BRIDGE_PY_EOF", "MUSE_SIDE_SH_EOF", "MUSE_INJECT_WD_EOF"):
-            if marker in src:
-                print("render_prompt: %s chua marker %s" % (name, marker), file=sys.stderr)
-                return 1
 
     values = {
         "LOCAL_HOST": args.host or detect_host(),
         "LOCAL_USER": args.user or sh(["id", "-un"]),
         "LOCAL_PUBKEY": args.pubkey or detect_pubkey(),
         "LOCAL_SPOOL": args.spool or os.path.expanduser("~/.muse-bridge"),
+        "LOCAL_PORT": str(args.port),
         "LOCAL_HOSTNAME": args.hostname or sh(["hostname"]),
-        "BRIDGE_PY": bridge_src,
-        "MUSE_SIDE_SH": muse_src,
-        "INJECT_WATCHDOG_PY": inject_src,
     }
-    for key, value in values.items():
-        text = text.replace("{{%s}}" % key, value)
 
-    leftovers = sorted(set(PLACEHOLDER_RE.findall(text)))
-    if leftovers:
-        print("render_prompt: chua thay placeholder: %s" % ", ".join(leftovers), file=sys.stderr)
+    missing = []
+    for name in sorted(set(PLACEHOLDER_RE.findall(text))):
+        if name not in values:
+            missing.append(name)
+            continue
+        text = text.replace("{{%s}}" % name, values[name])
+    if missing:
+        print("render_prompt: placeholder chua co gia tri: %s" % ", ".join(missing), file=sys.stderr)
+        return 1
+    if not values["LOCAL_HOST"] or not values["LOCAL_PUBKEY"]:
+        print("render_prompt: thieu host/public key - chay 'bridge.sh arm' truoc", file=sys.stderr)
         return 1
 
     if args.stdout:

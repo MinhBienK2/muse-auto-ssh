@@ -60,11 +60,40 @@ def die(msg: str, code: int = 2):
     sys.exit(code)
 
 
-def load_config(path: str | None) -> dict:
-    path = path or os.environ.get("MUSE_BRIDGE_CONFIG") or DEFAULT_CONFIG_PATH
-    path = expand(path)
+def config_path(host: str | None = None, path: str | None = None) -> str:
+    """Thu muc config: ~/.muse-bridge/hosts/<id>.json cho tung Muse host."""
+    if path:
+        return expand(path)
+    if host:
+        return expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts", host + ".json"))
+    env = os.environ.get("MUSE_BRIDGE_CONFIG")
+    if env:
+        return expand(env)
+    env_host = os.environ.get("MUSE_BRIDGE_HOST")
+    if env_host:
+        return expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts", env_host + ".json"))
+    default = expand(DEFAULT_CONFIG_PATH)
+    if os.path.isfile(default):
+        return default
+    hosts_dir = expand(os.path.join(os.path.expanduser("~"), ".muse-bridge", "hosts"))
+    if os.path.isdir(hosts_dir):
+        ids = sorted(n[:-5] for n in os.listdir(hosts_dir) if n.endswith(".json"))
+        if len(ids) == 1:
+            return os.path.join(hosts_dir, ids[0] + ".json")
+        if ids:
+            marker = os.path.join(os.path.expanduser("~"), ".muse-bridge", "default-host")
+            if os.path.isfile(marker):
+                with open(marker, "r", encoding="utf-8") as fh:
+                    want = fh.read().strip()
+                if want in ids:
+                    return os.path.join(hosts_dir, want + ".json")
+    return default
+
+
+def load_config(path: str | None = None, host: str | None = None) -> dict:
+    path = config_path(host, path)
     if not os.path.isfile(path):
-        die("no config at %s (run: bash scripts/bridge.sh arm)" % path)
+        die("no config at %s (run: bash scripts/bridge.sh arm --host <id>)" % path)
     try:
         with open(path, "r", encoding="utf-8") as fh:
             cfg = json.load(fh)
@@ -81,6 +110,7 @@ def load_config(path: str | None) -> dict:
     peer.setdefault("spool", os.path.join(expand(peer["spool"] if "spool" in peer else "~/.muse-bridge"), ""))
     peer["spool"] = expand(peer["spool"])
     peer.setdefault("ssh_opts", [])
+    cfg.setdefault("id", os.path.splitext(os.path.basename(path))[0])
     return cfg
 
 
@@ -116,6 +146,7 @@ def build_message(cfg: dict, args) -> dict:
         "ts": now_iso(),
         "from": cfg.get("role", "unknown"),
         "to": args.to or cfg["peer"].get("role", "peer"),
+        "host": getattr(args, "host_override", "") or cfg["peer"].get("id") or cfg.get("id"),
         "type": args.type,
         "subject": args.subject or "",
         "body": body,
@@ -337,6 +368,7 @@ def cmd_status(cfg: dict, args) -> int:
     last = msgs[-1] if msgs else None
     info = {
         "role": cfg.get("role"),
+        "id": cfg.get("id"),
         "config": cfg["_config_path"],
         "spool": cfg["spool"],
         "peer": {
@@ -356,6 +388,7 @@ def cmd_status(cfg: dict, args) -> int:
         print(json.dumps(info, ensure_ascii=False, indent=2))
         return 0 if peer_state == "OK" else 3
     print("ROLE=%s" % info["role"])
+    print("HOST_ID=%s" % cfg.get("id"))
     print("CONFIG=%s" % info["config"])
     print("SPOOL=%s" % info["spool"])
     print("PEER=%s@%s:%s (%s)" % (peer.get("user"), peer.get("host"), peer.get("port"), peer.get("role")))
@@ -372,6 +405,7 @@ def cmd_status(cfg: dict, args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bridge.py", description="muse-bridge message bus")
     p.add_argument("--config", help="path to config.json")
+    p.add_argument("--host", help="id cua Muse host (config: ~/.muse-bridge/hosts/<id>.json)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("send", help="send a message to the peer")
@@ -382,6 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--to", default="")
     s.add_argument("--reply-to", default="")
     s.add_argument("--meta", action="append")
+    s.add_argument("--host", dest="host_override", default="", help="ghi de dinh danh Muse host tren tin nhan")
 
     i = sub.add_parser("inbox", help="read messages addressed to me")
     i.add_argument("--type", default="")
@@ -402,7 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.host)
     if args.cmd == "send":
         return cmd_send(cfg, args)
     if args.cmd == "inbox":

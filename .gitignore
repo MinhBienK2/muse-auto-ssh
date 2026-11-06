@@ -12,3 +12,6 @@ id_ed25519
 /tmp/
 *.swp
 *.bak
+
+# Thong tin ket noi tung Muse host (chi tren may nay - KHONG push)
+.muse-hosts/

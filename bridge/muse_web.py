@@ -375,7 +375,7 @@ def pending_approval(cdp: CDP):
     return cdp.evaluate(
         "(() => {"
         " const btns=[...document.querySelectorAll('button')]"
-        "   .filter(b => /^(Allow once|Always allow this site|Allow|Approve|Deny)$/i.test((b.innerText||'').trim()));"
+        "   .filter(b => /^(Allow once|Allow for this task|Always allow this site|Allow|Approve|Deny)$/i.test((b.innerText||'').trim()));"
         " if (!btns.length) return null;"
         " const scope = btns[0].closest('[role=\"dialog\"], [role=\"alertdialog\"], [data-testid*=approval]') || document.body;"
         " return (scope.innerText||'').slice(0,400);"
@@ -386,15 +386,16 @@ def pending_approval(cdp: CDP):
 def approve(cdp: CDP, mode: str = "once", rounds: int = 6) -> int:
     """Bam nut allow cho cac approval treo (modes: once | always | deny)."""
     labels = {
-        "once": ["Allow once"],
-        "always": ["Always allow this site", "Allow once"],
+        "once": ["Allow once", "Allow for this task", "Allow"],
+        "always": ["Always allow this site", "Allow for this task", "Allow once", "Allow"],
         "deny": ["Deny"],
-    }.get(mode, ["Allow once"])
+    }.get(mode, ["Allow once", "Allow for this task", "Allow"])
     done = 0
     for _ in range(rounds):
         hit = cdp.evaluate(
             "(() => { const labels=%s;"
-            " for (const l of labels) { const b=[...document.querySelectorAll('button')]"
+            " const btns=[...document.querySelectorAll('button')];"
+            " for (const l of labels) { const b=btns"
             "   .find(x => (x.innerText||'').trim().toLowerCase() === l.toLowerCase());"
             "   if (b) { b.click(); return l; } }"
             " return null; })()" % json.dumps(labels)
@@ -410,12 +411,34 @@ def page_text(cdp: CDP) -> str:
     return cdp.evaluate("document.body.innerText") or ""
 
 
+def conversation_text(cdp: CDP, last: int = 6) -> str:
+    """Chi phan hoi thoai (khong lay ca trang) - tranh khop nham voi chinh noi dung da dan."""
+    js = (
+        "(() => { const b=[...document.querySelectorAll('div.hatch-chat-groupable-bubble')]"
+        ".map(e => (e.innerText||'').trim());"
+        " return b.slice(-" + str(last) + ").join(String.fromCharCode(10, 10)); })()"
+    )
+    return cdp.evaluate(js) or ""
+
+
+def assistant_text(cdp: CDP, last: int = 4) -> str:
+    """Chi phan trả lời của agent (span sr-only 'Assistant message:')."""
+    js = (
+        "(() => { const a=[...document.querySelectorAll('span.sr-only.whitespace-pre')]"
+        ".map(e => (e.textContent||'').trim())"
+        ".filter(t => t.startsWith('Assistant message:'));"
+        " return a.slice(-" + str(last) + ").join(String.fromCharCode(10, 10)); })()"
+    )
+    return cdp.evaluate(js) or ""
+
+
 def wait_for(cdp: CDP, pattern: str, timeout: float) -> str:
+    """Cho den khi regex khop voi phan hoi thoai moi (bo qua noi dung do nguoi dan)."""
     rx = re.compile(pattern)
     deadline = time.time() + timeout
     last = ""
     while time.time() < deadline:
-        last = page_text(cdp)
+        last = assistant_text(cdp) or conversation_text(cdp)
         if rx.search(last):
             return last
         time.sleep(3)
@@ -467,7 +490,7 @@ def cmd_send(args) -> int:
                 if not args.wait_for or re.search(args.wait_for, newest):
                     break
             time.sleep(4)
-        text = "\n\n".join(replies[-3:]) if replies else page_text(cdp)
+        text = "\n\n".join(replies[-3:]) if replies else conversation_text(cdp)
         if args.reply_out:
             with open(args.reply_out, "w", encoding="utf-8") as fh:
                 fh.write(text)
@@ -506,10 +529,11 @@ def cmd_say(args) -> int:
         if args.wait_for:
             deadline = time.time() + args.timeout
             while time.time() < deadline:
-                if re.search(args.wait_for, page_text(cdp)):
+                approve(cdp, args.approve_mode, 3)
+                if re.search(args.wait_for, assistant_text(cdp) or conversation_text(cdp)):
                     break
                 time.sleep(3)
-        print(page_text(cdp)[-4000:])
+        print(conversation_text(cdp)[-4000:])
         return 0
     finally:
         cdp.close()
@@ -533,7 +557,7 @@ def cmd_reply(args) -> int:
             text = ""
             while time.time() < deadline:
                 approve(cdp, args.approve_mode, 3)
-                text = page_text(cdp)
+                text = assistant_text(cdp) or conversation_text(cdp)
                 if re.search(args.wait_for, text):
                     break
                 time.sleep(3)
@@ -575,6 +599,7 @@ def main() -> int:
     say.add_argument("--thread", default="")
     say.add_argument("--wait-for", default="")
     say.add_argument("--timeout", type=float, default=120)
+    say.add_argument("--approve-mode", default="once", choices=["once", "always", "deny"])
 
     approve_p = sub.add_parser("approve")
     approve_p.add_argument("--mode", default="once", choices=["once", "always", "deny"])

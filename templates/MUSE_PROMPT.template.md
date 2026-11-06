@@ -28,29 +28,33 @@ echo '{{LOCAL_PUBKEY}}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized
 **Bước 2 — bảo đảm sshd trong container đang chạy** (thiếu thì cài `openssh-server` và `socat`,
 tạo `/run/sshd`, rồi chạy `/usr/sbin/sshd`).
 
-**Bước 3 — thử SSH thẳng từ container của bạn sang máy tôi:**
+**Bước 3 — thử SSH từ container của bạn sang máy tôi.**
+
+Lưu ý: container của bạn **không đi thẳng ra ngoài được** (ra ngoài phải qua HTTP CONNECT proxy
+nội bộ `hatch-egress-proxy:3130`). Nên hãy lấy `user:pass` từ biến `HTTPS_PROXY` (dạng
+`http://user:pass@…`) rồi chạy:
 
 ```bash
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 {{LOCAL_USER}}@{{LOCAL_HOST}} 'echo DIRECT_OK'
+ssh -o "ProxyCommand=socat - PROXY:hatch-egress-proxy:{{LOCAL_HOST}}:22,proxyport=3130,proxyauth=USER:PASS" \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 \
+  {{LOCAL_USER}}@{{LOCAL_HOST}} 'echo DIRECT_OK'
 ```
 
 Báo tôi: có ra `DIRECT_OK` không, hay lỗi gì.
 
 **Bước 4 — mở reverse tunnel** (chạy nền, tự kết nối lại mỗi 10 giây) để máy tôi truy cập được
-sshd của bạn ở cổng `{{LOCAL_PORT}}`:
+sshd của bạn ở cổng `{{LOCAL_PORT}}` — vẫn phải qua proxy như bước 3:
 
 ```bash
-ssh -N -R {{LOCAL_PORT}}:127.0.0.1:22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
-  -o ConnectTimeout=10 {{LOCAL_USER}}@{{LOCAL_HOST}}
+nohup ssh -N -R {{LOCAL_PORT}}:127.0.0.1:22 \
+  -o "ProxyCommand=socat - PROXY:hatch-egress-proxy:{{LOCAL_HOST}}:22,proxyport=3130,proxyauth=USER:PASS" \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=15 \
+  {{LOCAL_USER}}@{{LOCAL_HOST}} > /tmp/tunnel.log 2>&1 &
 ```
 
-Nếu container của bạn chỉ đi ra ngoài được qua HTTP CONNECT proxy nội bộ
-(`hatch-egress-proxy:3130`), hãy bọc lệnh trên bằng `socat` (lấy user/pass từ biến `HTTPS_PROXY`):
-
-```bash
-socat - "PROXY:hatch-egress-proxy:{{LOCAL_HOST}}:22,proxyport=3130,proxyauth=<user>:<pass>"
-```
+Sau khi chạy, kiểm tra cổng `{{LOCAL_PORT}}` đã mở chưa và báo tôi kèm 10 dòng cuối của
+`/tmp/tunnel.log`.
 
 **Sau khi xong, báo tôi 4 dòng:** hostname của container, cổng tunnel đang mở, đường dẫn private key
 bạn dùng, và public key tương ứng (dạng `ssh-ed25519 AAAA…`).

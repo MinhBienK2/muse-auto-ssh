@@ -133,10 +133,13 @@ Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 
 1. **systemd service** `muse-reverse-tunnel-<port>.service` — supervisor chính, `Restart=always`.
 2. **Watchdog v6** trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s):
    nếu `sshd` không **trả lời banner** trên `:22` → restart `sshd`; nếu container vừa mất
-   `openssh-server` → cài lại; nếu `/etc` bị wipe → cài lại unit systemd từ bản bền ở `/home/hatch`.
-3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` + `authorized_keys` + mở lại
-   `ssh -R` nếu chết; config riêng theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới từ
-   máy ngoài và tự thay script của chính nó (nên container tự lên được sau khi bị wipe).
+   `openssh-server` → cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline);
+   đặt quyền 0755 cho `/run/sshd`; khôi phục host key từ `/home/hatch/.muse-bridge/ssh_host`;
+   nếu `/etc` bị wipe → cài lại unit systemd từ bản bền ở `/home/hatch`.
+3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` (tự cài lại từ deb cache nếu thiếu +
+   quyền 0755 + khôi phục host key) + `authorized_keys` + mở lại `ssh -R` nếu chết; config riêng
+   theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới (kèm deb cache) từ máy ngoài và tự
+   thay script của chính nó (nên container tự lên được sau khi bị wipe).
 4. **Auto-repair qua web** — máy ngoài gửi tin vào chat `muse.ai` để **đánh thức container** khi
    nền tảng đóng băng nó (lớp 1–3 không chạy được khi container không chạy).
 

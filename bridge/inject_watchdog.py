@@ -46,6 +46,8 @@ BLOCK = """
 set +e
 set +u
 mkdir -p /run/sshd /var/run/sshd
+chmod 755 /run/sshd /var/run/sshd 2>/dev/null || true
+chown root:root /run/sshd /var/run/sshd 2>/dev/null || true
 # 0) container refresh -> /root/.ssh/authorized_keys mat -> khoi phuc tu vung BEN VUNG
 mkdir -p /root/.ssh
 SEED="/home/hatch/.muse-bridge/authorized_keys.seed"
@@ -54,17 +56,43 @@ if [ ! -f /root/.ssh/authorized_keys ] && [ -f "$SEED" ]; then
     cp -f "$SEED" /root/.ssh/authorized_keys 2>/dev/null || true
     chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
 fi
+# 0b) khoi phuc SSH Host Keys neu /etc bi wipe (tranh may ngoai bi canh bao doi key)
+HOST_KEY_SEED="/home/hatch/.muse-bridge/ssh_host"
+if [ -d "$HOST_KEY_SEED" ] && ls "$HOST_KEY_SEED"/ssh_host_* >/dev/null 2>&1; then
+    mkdir -p /etc/ssh
+    for hk in "$HOST_KEY_SEED"/ssh_host_*; do
+        [ -f "$hk" ] || continue
+        base_hk="$(basename "$hk")"
+        if [ ! -f "/etc/ssh/$base_hk" ]; then
+            cp -f "$hk" "/etc/ssh/$base_hk" 2>/dev/null || true
+        fi
+    done
+    chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+    chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
+elif [ -f /etc/ssh/ssh_host_ed25519_key ]; then
+    mkdir -p "$HOST_KEY_SEED"
+    cp -f /etc/ssh/ssh_host_* "$HOST_KEY_SEED/" 2>/dev/null || true
+    chmod 700 "$HOST_KEY_SEED" 2>/dev/null || true
+fi
 # 1) sshd phai TRA LOI duoc banner tren :22 (pgrep khong du - sshd treo van bi bo qua)
 # 1b) container refresh xoa luon openssh-server (image khong chua san) -> cai lai
-if [ ! -x /usr/sbin/sshd ] && command -v apt-get >/dev/null 2>&1; then
-    MARK="/home/hatch/.muse-bridge/.openssh_retry"
-    NOW="$(date +%s)"; LAST="$(cat "$MARK" 2>/dev/null || echo 0)"
-    if [ $((NOW - LAST)) -gt 600 ]; then
-        echo "$NOW" > "$MARK" 2>/dev/null || true
-        export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
-        export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
-        timeout 25 apt-get update -qq >/dev/null 2>&1 || true
-        timeout 25 apt-get install -y -qq openssh-server >/dev/null 2>&1 || true
+if [ ! -x /usr/sbin/sshd ]; then
+    DEB_DIR="/home/hatch/.muse-bridge/deb"
+    APT_CACHE="/var/cache/apt/archives"
+    if ls "$DEB_DIR"/openssh-server*.deb >/dev/null 2>&1; then
+        dpkg -i "$DEB_DIR"/openssh-*.deb >/dev/null 2>&1 || true
+    elif ls "$APT_CACHE"/openssh-server*.deb >/dev/null 2>&1; then
+        dpkg -i "$APT_CACHE"/openssh-*.deb >/dev/null 2>&1 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+        MARK="/home/hatch/.muse-bridge/.openssh_retry"
+        NOW="$(date +%s)"; LAST="$(cat "$MARK" 2>/dev/null || echo 0)"
+        if [ $((NOW - LAST)) -gt 300 ]; then
+            echo "$NOW" > "$MARK" 2>/dev/null || true
+            export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
+            export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
+            timeout 25 apt-get update -qq >/dev/null 2>&1 || true
+            timeout 25 apt-get install -y -qq --no-install-recommends openssh-server >/dev/null 2>&1 || true
+        fi
     fi
 fi
 if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH; then

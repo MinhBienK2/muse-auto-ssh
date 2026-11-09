@@ -231,8 +231,8 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 | Lớp | Chạy ở đâu | Cơ chế | Đã kiểm chứng |
 |---|---|---|---|
 | 1. **systemd service** `muse-reverse-tunnel-<port>.service` | container Muse | Chạy loop tunnel, `Restart=always`; sống qua cả lần container restart | ✅ trên cả 2 host |
-| 2. **Watchdog v6** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); mất `openssh-server` → cài lại; `/etc` bị wipe → cài lại unit từ bản bền ở `/home/hatch`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ cài trên cả 2 host |
-| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` + `authorized_keys` + mở lại `ssh -R` nếu chết; tự kéo bundle mới từ máy ngoài và tự thay script của chính nó | ✅ tunnel bị giết → tự lên lại sau ~15s |
+| 2. **Watchdog v6** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); mất `openssh-server` sau refresh → tự cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; `/etc` bị wipe → cài lại unit từ bản bền ở `/home/hatch`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ cài trên cả 2 host |
+| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` (tự cài lại từ deb cache nếu thiếu + quyền 0755 + khôi phục host key) + `authorized_keys` + mở lại `ssh -R` nếu chết; tự kéo bundle mới (kèm deb cache) từ máy ngoài và tự thay script của chính nó | ✅ tunnel bị giết/wiped → tự phục hồi sau ~10-15s |
 | 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào chat Muse để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
 
 > **Lưu ý về port forward bị giữ:** khi container bị **đóng băng** (không phải tắt), phiên ssh của nó

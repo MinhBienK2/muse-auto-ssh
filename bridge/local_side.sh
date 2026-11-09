@@ -311,6 +311,17 @@ muse_provision() {
   ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > /root/.muse-bridge/reverse-tunnel.sh" || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge/reverse-tunnel.sh /root/.muse-bridge/ts-socat-proxy.sh" >/dev/null 2>&1 || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
+  if [ -d "$STATE_DIR/bundle/deb" ]; then
+    ssh_host "$port" "mkdir -p /root/.muse-bridge/deb /home/hatch/.muse-bridge/deb 2>/dev/null" || true
+    for deb in "$STATE_DIR/bundle/deb"/*.deb; do
+      [ -f "$deb" ] || continue
+      local deb_base; deb_base="$(basename "$deb")"
+      ssh_host_push "$port" "$deb" "cat > /home/hatch/.muse-bridge/deb/$deb_base" || true
+      ssh_host "$port" "cp -f /home/hatch/.muse-bridge/deb/$deb_base /root/.muse-bridge/deb/$deb_base 2>/dev/null || true" || true
+    done
+  fi
+  # Sao luu SSH Host Keys ben vung neu container dang co
+  ssh_host "$port" 'if [ -f /etc/ssh/ssh_host_ed25519_key ]; then mkdir -p /home/hatch/.muse-bridge/ssh_host; cp -f /etc/ssh/ssh_host_* /home/hatch/.muse-bridge/ssh_host/ 2>/dev/null || true; chmod 700 /home/hatch/.muse-bridge/ssh_host 2>/dev/null || true; fi' || true
 
   # chay setup phia Muse (sshd, loop tunnel, watchdog, config bus, HELLO/REPORT)
   # public key truyen qua FILE (tranh loi trich dan long nhau -> key bi hong)
@@ -381,6 +392,20 @@ install_sshd_hook() {
   sudo -n bash "$installer" && say "TOFU hook: da cai" || warn "cai TOFU hook that bai"
 }
 
+ensure_bundle_deb() {
+  local deb_dir="$1"
+  mkdir -p "$deb_dir"
+  local base_url="http://archive.ubuntu.com/ubuntu/pool/main/o/openssh"
+  local p
+  for p in "openssh-server_9.6p1-3ubuntu13.20_amd64.deb" "openssh-sftp-server_9.6p1-3ubuntu13.20_amd64.deb"; do
+    if [ ! -f "$deb_dir/$p" ]; then
+      if command -v curl >/dev/null 2>&1; then
+        curl -s -L -o "$deb_dir/$p" "$base_url/$p" >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+}
+
 install_bundle_local() {
   mkdir -p "$STATE_DIR/bundle"
   install -m 0755 "$BRIDGE_PY" "$STATE_DIR/bridge.py"
@@ -390,6 +415,7 @@ install_bundle_local() {
   install -m 0755 "$SCRIPT_DIR/inject_watchdog.py" "$STATE_DIR/bundle/inject_watchdog.py"
   install -m 0755 "$SCRIPT_DIR/reverse-tunnel.sh" "$STATE_DIR/bundle/reverse-tunnel.sh"
   install -m 0755 "$SCRIPT_DIR/ts-socat-proxy.sh" "$STATE_DIR/bundle/ts-socat-proxy.sh"
+  ensure_bundle_deb "$STATE_DIR/bundle/deb"
   # VERSION: container tu keo bundle moi khi version doi (huong container -> may ngoai)
   printf '%s\n' "$(date +%s)-$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)" > "$STATE_DIR/bundle/VERSION"
 }
@@ -403,6 +429,19 @@ push_bundle() {
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > $REMOTE_SPOOL/inject_watchdog.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/muse_side.sh" "cat > $REMOTE_SPOOL/bundle/muse_side.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > $REMOTE_SPOOL/bundle/inject_watchdog.py" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > $REMOTE_SPOOL/bundle/reverse-tunnel.sh" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > $REMOTE_SPOOL/bundle/ts-socat-proxy.sh" || true
+  if [ -d "$STATE_DIR/bundle/deb" ]; then
+    ssh_host "$port" "mkdir -p $REMOTE_SPOOL/deb $REMOTE_SPOOL/bundle/deb /home/hatch/.muse-bridge/deb 2>/dev/null" || true
+    for deb in "$STATE_DIR/bundle/deb"/*.deb; do
+      [ -f "$deb" ] || continue
+      local deb_base; deb_base="$(basename "$deb")"
+      if ! ssh_host "$port" "[ -f /home/hatch/.muse-bridge/deb/$deb_base ]" 2>/dev/null; then
+        ssh_host_push "$port" "$deb" "cat > /home/hatch/.muse-bridge/deb/$deb_base" || true
+      fi
+      ssh_host "$port" "cp -f /home/hatch/.muse-bridge/deb/$deb_base $REMOTE_SPOOL/deb/$deb_base 2>/dev/null || true" || true
+    done
+  fi
   ssh_host "$port" "chmod 700 $REMOTE_SPOOL $REMOTE_SPOOL/bridge.py $REMOTE_SPOOL/muse_side.sh $REMOTE_SPOOL/inject_watchdog.py; chmod 600 $REMOTE_SPOOL/bridge.py" >/dev/null 2>&1 || true
   say "bundle da duoc day len host (port $port)"
 }

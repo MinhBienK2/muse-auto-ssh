@@ -69,7 +69,17 @@ ensure_pkgs() {
   fi
   if ! command -v sshd >/dev/null 2>&1 && [ ! -x /usr/sbin/sshd ]; then
     say "cai openssh-server..."
-    (apt-get update -qq && apt-get install -y -qq openssh-server) >/dev/null 2>&1 || true
+    local deb_dir="$BASE/deb"
+    local apt_cache="/var/cache/apt/archives"
+    if ls "$deb_dir"/openssh-server*.deb >/dev/null 2>&1; then
+      dpkg -i "$deb_dir"/openssh-*.deb >/dev/null 2>&1 || true
+    elif ls "$apt_cache"/openssh-server*.deb >/dev/null 2>&1; then
+      dpkg -i "$apt_cache"/openssh-*.deb >/dev/null 2>&1 || true
+    else
+      export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
+      export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
+      (apt-get update -qq && apt-get install -y -qq --no-install-recommends openssh-server) >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -80,6 +90,28 @@ sshd_alive() {
 
 ensure_sshd() {
   mkdir -p /run/sshd /var/run/sshd
+  chmod 755 /run/sshd /var/run/sshd 2>/dev/null || true
+  chown root:root /run/sshd /var/run/sshd 2>/dev/null || true
+
+  # Khoi phuc SSH Host Keys neu /etc bi wipe
+  local host_key_seed="$BASE/ssh_host"
+  if [ -d "$host_key_seed" ] && ls "$host_key_seed"/ssh_host_* >/dev/null 2>&1; then
+    mkdir -p /etc/ssh
+    for hk in "$host_key_seed"/ssh_host_*; do
+      [ -f "$hk" ] || continue
+      local base_hk; base_hk="$(basename "$hk")"
+      if [ ! -f "/etc/ssh/$base_hk" ]; then
+        cp -f "$hk" "/etc/ssh/$base_hk" 2>/dev/null || true
+      fi
+    done
+    chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+    chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
+  elif [ -f /etc/ssh/ssh_host_ed25519_key ]; then
+    mkdir -p "$host_key_seed"
+    cp -f /etc/ssh/ssh_host_* "$host_key_seed/" 2>/dev/null || true
+    chmod 700 "$host_key_seed" 2>/dev/null || true
+  fi
+
   if ! pgrep -x sshd >/dev/null 2>&1; then
     /usr/sbin/sshd 2>/dev/null || true
   fi

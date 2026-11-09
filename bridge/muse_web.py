@@ -247,6 +247,8 @@ def ensure_chrome(port: int, profile_src: str, clone_dir: str, headed: bool = Fa
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-background-networking",
+        # Chrome tu tai model AI 2.7 GB vao profile -> 2.7 GB rong tren dia
+        "--disable-features=OptimizationGuideModelDownloading,OptimizationHints",
         "--window-size=1400,900",
     ]
     if not headed:

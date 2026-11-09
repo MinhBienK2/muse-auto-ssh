@@ -31,7 +31,7 @@ LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 # tro sang noi khac khi can (test cung dung bien nay).
 SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v7"
+LOOP_VERSION="v8"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
@@ -55,18 +55,59 @@ ensure_authorized_keys() {
 }
 
 ensure_sshd() {
-  mkdir -p /run/sshd /var/run/sshd
-  if ! pgrep -x sshd >/dev/null 2>&1; then
-    "$SSHD_BIN" 2>/dev/null || true
-    sleep 1
+  # Container refresh -> /usr/sbin/sshd bi overlay xoa mat -> cai lai tu local deb
+  if [ ! -x "$SSHD_BIN" ]; then
+    log "sshd bi thieu -> tu cai lai tu deb cache..."
+    local deb_dir="/home/hatch/.muse-bridge/deb"
+    local apt_cache="/var/cache/apt/archives"
+    if ls "$deb_dir"/openssh-server*.deb >/dev/null 2>&1; then
+      dpkg -i "$deb_dir"/openssh-*.deb >/dev/null 2>&1 || true
+    elif ls "$apt_cache"/openssh-server*.deb >/dev/null 2>&1; then
+      dpkg -i "$apt_cache"/openssh-*.deb >/dev/null 2>&1 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+      export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
+      export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
+      timeout 30 apt-get install -y -qq --no-install-recommends openssh-server >/dev/null 2>&1 || true
+    fi
   fi
-  if ! sshd_alive; then
-    log "sshd khong tra loi banner -> restart"
-    pkill -x sshd >/dev/null 2>&1 || true
-    sleep 1
-    "$SSHD_BIN" 2>/dev/null || true
-    sleep 2
-    sshd_alive && log "sshd da khoi dong lai" || log "sshd van khong phan hoi"
+
+  # /run/sshd phai ton tai voi quyen 0755 (tranh loi privilege separation directory)
+  mkdir -p /run/sshd /var/run/sshd
+  chmod 755 /run/sshd /var/run/sshd 2>/dev/null || true
+  chown root:root /run/sshd /var/run/sshd 2>/dev/null || true
+
+  # Khoi phuc SSH Host Keys neu /etc bi wipe
+  local host_key_seed="/home/hatch/.muse-bridge/ssh_host"
+  if [ -d "$host_key_seed" ] && ls "$host_key_seed"/ssh_host_* >/dev/null 2>&1; then
+    mkdir -p /etc/ssh
+    for hk in "$host_key_seed"/ssh_host_*; do
+      [ -f "$hk" ] || continue
+      local base_hk; base_hk="$(basename "$hk")"
+      if [ ! -f "/etc/ssh/$base_hk" ]; then
+        cp -f "$hk" "/etc/ssh/$base_hk" 2>/dev/null || true
+      fi
+    done
+    chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+    chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
+  elif [ -f /etc/ssh/ssh_host_ed25519_key ]; then
+    mkdir -p "$host_key_seed"
+    cp -f /etc/ssh/ssh_host_* "$host_key_seed/" 2>/dev/null || true
+    chmod 700 "$host_key_seed" 2>/dev/null || true
+  fi
+
+  if [ -x "$SSHD_BIN" ]; then
+    if ! pgrep -x sshd >/dev/null 2>&1; then
+      "$SSHD_BIN" 2>/dev/null || true
+      sleep 1
+    fi
+    if ! sshd_alive; then
+      log "sshd khong tra loi banner -> restart"
+      pkill -x sshd >/dev/null 2>&1 || true
+      sleep 1
+      "$SSHD_BIN" 2>/dev/null || true
+      sleep 2
+      sshd_alive && log "sshd da khoi dong lai" || log "sshd van khong phan hoi"
+    fi
   fi
 }
 
@@ -86,7 +127,7 @@ pull_updates() {
   if ! timeout 90 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 \
         -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" \
-        'cd ~/.muse-bridge/bundle && tar cf - VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh 2>/dev/null' \
+        'cd ~/.muse-bridge/bundle && tar cf - VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh deb 2>/dev/null' \
         2>/dev/null | tar xf - -C "$tmp" 2>/dev/null; then
     rm -rf "$tmp"; return 0
   fi
@@ -102,6 +143,10 @@ pull_updates() {
     [ -f "$tmp/$f" ] || continue
     mv -f "$tmp/$f" "$bundle/$f"; chmod 700 "$bundle/$f" 2>/dev/null || true
   done
+  if [ -d "$tmp/deb" ]; then
+    mkdir -p "$base/deb"
+    cp -rf "$tmp/deb"/* "$base/deb/" 2>/dev/null || true
+  fi
   rm -rf "$tmp"
   cp -f "$bundle/bridge.py" "$base/bridge.py" 2>/dev/null || true
   # inject_watchdog.py MOI phai duoc dung de re-inject hook. Ban trước goi

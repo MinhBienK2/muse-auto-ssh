@@ -231,9 +231,15 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 | Lớp | Chạy ở đâu | Cơ chế | Đã kiểm chứng |
 |---|---|---|---|
 | 1. **systemd service** `muse-reverse-tunnel-<port>.service` | container Muse | Chạy loop tunnel, `Restart=always`; sống qua cả lần container restart | ✅ trên cả 2 host |
-| 2. **Watchdog v3** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); systemd chưa chạy → tự mở loop | ✅ cài trên cả 2 host |
-| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s thử lại `ssh -R`; tự restart `sshd` nếu treo | ✅ tunnel bị giết → tự lên lại sau ~15s |
+| 2. **Watchdog v6** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); mất `openssh-server` → cài lại; `/etc` bị wipe → cài lại unit từ bản bền ở `/home/hatch`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ cài trên cả 2 host |
+| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` + `authorized_keys` + mở lại `ssh -R` nếu chết; tự kéo bundle mới từ máy ngoài và tự thay script của chính nó | ✅ tunnel bị giết → tự lên lại sau ~15s |
 | 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào chat Muse để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
+
+> **Lưu ý về port forward bị giữ:** khi container bị **đóng băng** (không phải tắt), phiên ssh của nó
+> trên máy ngoài vẫn treo và vẫn giữ port forward `2222`/`2223`. Container mới sẽ không bind được
+> (`remote port forwarding failed for listen port 2222`) và SSH không lên được. Máy ngoài phải có
+> `ClientAliveInterval` để sshd tự đóng session treo đó:
+> `sudo bash scripts/install_sshd_keepalive.sh` (chạy 1 lần).
 
 > Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) hoặc treo (suspend) container** — lúc đó
 > không tiến trình nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container

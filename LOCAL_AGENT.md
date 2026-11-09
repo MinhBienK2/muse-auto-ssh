@@ -45,6 +45,13 @@ Nếu bước TOFU báo thiếu quyền root, báo người dùng đúng 1 dòng
 sudo bash scripts/install_tofu_hook.sh
 ```
 
+Nếu báo container báo *"remote port forwarding failed for listen port 2222"* (session ssh cũ còn
+treo và giữ chết port forward), báo người dùng chạy 1 lần:
+
+```
+sudo bash scripts/install_sshd_keepalive.sh
+```
+
 ---
 
 ## 3. Kết nối một máy Muse mới

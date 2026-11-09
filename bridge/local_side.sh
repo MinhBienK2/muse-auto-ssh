@@ -87,6 +87,58 @@ ssh_host_push() {
 
 host_reachable() { ssh_host "$1" 'true' >/dev/null 2>&1; }
 
+# ------------------------------------------------------- giai phong forward treo
+# Khi container chet/treo, session ssh cu VAN giu port 127.0.0.1:<port> ->
+# container moi khong bind duoc ("remote port forwarding failed").
+#
+# KHONG dung `pkill -o -f "^sshd: <user>$"`:
+#   - regex co `$` khong khop cmdline that (sshd ghi NUL duoi) -> no-op;
+#   - `-o` = session GIA NHAT, co the la cua host KHAC dang khoe.
+# Dung scope cua CHINH listener socket cua port do -> dung session, dung host.
+#
+# PROC_ROOT: cho phep tro sang thu muc gia lap (test khong doc /proc that).
+PROC_ROOT="${MUSE_PROC_ROOT:-/proc}"
+
+forward_scope() {
+  local port="$1" line
+  line="$(ss -tlnpe 2>/dev/null | grep -E "127\\.0\\.0\\.1:${port}[[:space:]]" | head -1)"
+  [ -n "$line" ] || return 1
+  printf '%s\n' "$line" | grep -o 'session-[0-9]*\.scope' | head -1
+}
+
+# Tra về pid cua cac tien trinh trong scope (mỗi pid mot dong).
+forward_scope_pids() {
+  local scope="$1" d pid
+  [ -n "$scope" ] || return 0
+  for d in "$PROC_ROOT"/[0-9]*; do
+    [ -d "$d" ] || continue
+    pid="${d##*/}"
+    grep -qs "$scope" "$d/cgroup" 2>/dev/null || continue
+    printf '%s\n' "$pid"
+  done
+}
+
+# Giai phong port forward: kill session sshd cu chiu port do (va CHI port do).
+forward_release() {
+  local port="$1" scope pid cmd killed=0
+  scope="$(forward_scope "$port")" || return 1
+  [ -n "$scope" ] || return 1
+  for pid in $(forward_scope_pids "$scope"); do
+    cmd="$(tr '\0' ' ' < "$PROC_ROOT/$pid/cmdline" 2>/dev/null)"
+    case "$cmd" in
+      "sshd: "*)
+        # Tien trinh [priv] chay root -> can sudo; tien trinh con (user-owned)
+        # bi kill duoc va no lam sshd phai doi port. Khong fail ca loi.
+        if kill "$pid" 2>/dev/null; then killed=$((killed + 1)); fi
+        ;;
+    esac
+  done
+  [ "$killed" -gt 0 ] || return 1
+  # Cho sshd don dep socket truoc khi container moi thu bind lai.
+  sleep 2
+  return 0
+}
+
 # ------------------------------------------------------------------ host registry
 host_ids() {
   [ -d "$HOSTS_DIR" ] || return 0
@@ -446,21 +498,34 @@ cmd_daemon() {
     done ) &
   SYNC_PID=$!
   trap '[ -n "${SYNC_PID:-}" ] && kill "$SYNC_PID" 2>/dev/null; [ -n "${REPAIR_PID:-}" ] && kill "$REPAIR_PID" 2>/dev/null' EXIT INT TERM
+  # Lớp canh phai GHI LOG vao file: stdout cua daemon co the la socket
+  # (chay nền) -> say ra stdout bi nuot, khong ai thay gi.
+  watch_say() { printf '%s %s\n' "$(date -Is)" "$*" >>"$log"; printf '[bridge] %s\n' "$*"; }
   # vong lap auto-repair (nen): moi 5 phut, host nao chet -> gui tin nhan web de danh thuc container
   ( while true; do
       sleep 600
       local ids; ids="$(host_ids)"
       for id in $ids; do
         local p; p="$(host_peer_port "$id")"
+        # Port forward con song nhung container da chet (bi dong bang) -> session
+        # ssh cu giu chet port, container moi khong bind duoc. Dung session cu.
+        if ss -tln 2>/dev/null | grep -q ":$p\b" \
+           && ! timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$p; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+          if forward_release "$p"; then
+            watch_say "canh host '$id' (port $p): forward treo (container da chet) -> da dung session ssh cu giu port do"
+          else
+            watch_say "canh host '$id' (port $p): forward treo -> khong tim thay session sshd nao giu port (can sudo de don)"
+          fi
+        fi
         if ! host_reachable "$p"; then
           if [ "${MUSE_WAKE_ALLOW:-0}" = "1" ]; then
-            say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
+            watch_say "auto-repair: host '$id' (port $p) khong phan hoi -> danh thuc qua web"
             HOST="$id" cmd_repair >>"$log" 2>&1 || true
           else
-            say "canh host '$id' (port $p) khong phan hoi (tu danh thuc qua web: TAT)"
+            watch_say "canh host '$id' (port $p) khong phan hoi (tu danh thuc qua web: TAT)"
           fi
         elif ! muse_bus_present "$p"; then
-          say "auto-reprovision: host '$id' (port $p) da refresh, bus bi mat -> provision lai"
+          watch_say "auto-reprovision: host '$id' (port $p) da refresh, bus bi mat -> provision lai"
           HOST="$id" cmd_reprovision >>"$log" 2>&1 || true
         fi
       done
@@ -482,6 +547,10 @@ cmd_daemon() {
 cmd_push() {
   parse_flags "$@"
   require_host
+  # Cap nhat bundle tren may ngoai TRUOC: container tu keo bundle qua
+  # ~/.muse-bridge/bundle (pull_updates) -> khong refresh thi container van
+  # dung code cu.
+  install_bundle_local
   push_bundle "$(host_peer_port "$HOST")"
 }
 
@@ -731,14 +800,26 @@ cmd_repair() {
   say "kenh chet -> gui tin nhan danh thuc container '$HOST'..."
   mkdir -p "$dir"
   local msg="$dir/repair.txt"
+  # Giu van ban: chi 4-5 buoc bang loi tu nhien. Prompt day shell vao chat se bi
+  # bo loc an toan cua nen tang chan (chan session 21 gio) - xem PROTOCOL.md muc 8.0/8.1.
   printf '%s\n' \
     "Kênh SSH từ container của bạn sang máy tôi đang chết (cổng $port)." \
     "" \
-    "Nếu máy tôi báo Permission denied thì /root/.ssh/authorized_keys của bạn đã mất (container vừa refresh - /root là overlay tạm, /home/hatch mới bền vững). Chạy:" \
+    "Tôi vừa kiểm tra từ máy tôi: không còn listener nào trên cổng $port, và gần đây tôi không thấy container của bạn mở phiên SSH nào sang tôi nữa. Nghĩa là reverse tunnel của bạn đã chết và không tự lên lại." \
     "" \
-    "mkdir -p /root/.ssh /home/hatch/.ssh && ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /home/hatch/.ssh/authorized_keys" \
+    "Bạn giúp tôi theo thứ tự sau:" \
     "" \
-    "Sau đó mở lại reverse tunnel cổng $port (dùng script /home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel-$port.sh chạy nền bằng nohup - script này tự nối lại mỗi 10s và tự restart sshd nếu treo), rồi báo tôi kết quả." > "$msg"
+    "1) Kiểm tra sshd trong container còn chạy và còn trả lời banner trên 127.0.0.1:22 không. Nếu treo thì restart nó." \
+    "" \
+    "2) Đảm bảo /root/.ssh/authorized_keys vẫn có key của máy tôi. Container vừa refresh nên /root là overlay tạm mất sạch; phần bền vững nằm ở /home/hatch/.ssh/authorized_keys." \
+    "" \
+    "3) Đảm bảo cổng $port chỉ có MỘT supervisor. Dừng hết các tiến trình cũ của cổng này trước, vì hai tiến trình cùng xin một cổng sẽ đụng nhau và cả hai cùng chết." \
+    "" \
+    "4) Mở lại reverse tunnel cổng $port bằng đúng script reverse-tunnel-$port.sh trong thư mục tunnel của bạn, và bảo đảm nó dùng đúng file cấu hình riêng của cổng $port (REMOTE_PORT=\"$port\"), không dùng chung file của cổng khác." \
+    "" \
+    "5) Báo lại kết quả từng bước, kèm output của pgrep -af 'ssh -N -R $port:' và tail -15 tunnel.log." \
+    "" \
+    "Lưu ý: không tạo key mới và không sửa gì trên máy tôi." > "$msg"
 
   local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|$port")"
   echo "$out" >> "$dir/repair.log" 2>/dev/null || true
@@ -759,6 +840,36 @@ cmd_repair() {
   return 1
 }
 
+# ------------------------------------------------------------------ release
+# Don session ssh cu dang giu port forward (container chet/freeze -> port bi
+# giu, container moi khong bind duoc). Chi dung session CUA DUNG port do.
+cmd_release() {
+  parse_flags "$@"
+  local ids port
+  ids="$(host_ids)"
+  [ -n "$ids" ] || { say "chua co Muse host nao"; return 0; }
+  local rc=0
+  for id in $ids; do
+    [ -n "$HOST" ] && [ "$HOST" != "$id" ] && continue
+    port="$(host_peer_port "$id")"
+    if ! ss -tln 2>/dev/null | grep -q ":$port\b"; then
+      say "host '$id' (port $port): khong co listener -> khong can release"
+      continue
+    fi
+    if timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+      say "host '$id' (port $port): container van tra loi banner -> KHONG release (forward dang tot)"
+      continue
+    fi
+    if forward_release "$port"; then
+      say "host '$id' (port $port): da dung session ssh cu giu port -> port da duoc nha"
+    else
+      warn "host '$id' (port $port): khong dung duoc session (thieu quyen?) -> can sudo"
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
 # ------------------------------------------------------------------ doctor
 cmd_doctor() {
   parse_flags "$@"
@@ -769,6 +880,11 @@ cmd_doctor() {
   else
     warn "TOFU: CHUA cai -> may Muse moi se can authorize key thu cong. Chay: sudo bash scripts/install_tofu_hook.sh"
   fi
+  if [ -f /etc/ssh/sshd_config.d/98-muse-bridge-keepalive.conf ]; then
+    say "sshd keepalive: da cai (session treo tu dong dong -> port forward duoc nha ra)"
+  else
+    warn "sshd keepalive: CHUA cai -> container bi dong bang se giu chet port forward 2222/2223. Chay: sudo bash scripts/install_sshd_keepalive.sh"
+  fi
   local ids; ids="$(host_ids)"
   if [ -z "$ids" ]; then say "chua co Muse host nao"; return 0; fi
   for id in $ids; do
@@ -778,6 +894,13 @@ cmd_doctor() {
     printf '%-10s port=%-6s ' "$id" "$port"
     if ss -tln 2>/dev/null | grep -q ":$port\b"; then printf 'forward=LISTEN '; else printf 'forward=DOWN  '; fi
     if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi
+    # Forward con song nhung container da chet: port van LISTEN, banner khong ve.
+    if ss -tln 2>/dev/null | grep -q ":$port\b"; then
+      if ! timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+        printf 'STALE-FORWARD(da giu port) '
+        warn "  host '$id': port $port con listener nhung container khong tra loi banner -> session ssh cu bi treo. Lam: bash scripts/bridge.sh release --host $id (dung session dung port) | nen: sudo bash scripts/install_sshd_keepalive.sh"
+      fi
+    fi
     local inbox=0 f
     for f in "$STATE_DIR/spools/$id/inbox"/*.json; do
       [ -f "$f" ] && inbox=$((inbox + 1))
@@ -800,6 +923,7 @@ case "${1:-}" in
   push)      shift; cmd_push "$@" ;;
   hosts)     shift; cmd_hosts "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
+  release)   shift; cmd_release "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
@@ -809,5 +933,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|push|hosts|add-host|authorize|onboard}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|push|hosts|add-host|authorize|onboard|doctor|release}"; exit 2 ;;
 esac

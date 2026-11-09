@@ -27,8 +27,11 @@ REMOTE_PORT="${REMOTE_PORT:-2222}"
 KEY_PATH="${KEY_PATH:-/home/hatch/.ssh/id_ed25519}"
 PROXY_PATH="${PROXY_PATH:-$SCRIPT_DIR/ts-socat-proxy.sh}"
 LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
+# sshd co the bi container xoa (openssh-server khong nam trong image) -> cho phep
+# tro sang noi khac khi can (test cung dung bien nay).
+SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v5"
+LOOP_VERSION="v7"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
@@ -54,14 +57,14 @@ ensure_authorized_keys() {
 ensure_sshd() {
   mkdir -p /run/sshd /var/run/sshd
   if ! pgrep -x sshd >/dev/null 2>&1; then
-    /usr/sbin/sshd 2>/dev/null || true
+    "$SSHD_BIN" 2>/dev/null || true
     sleep 1
   fi
   if ! sshd_alive; then
     log "sshd khong tra loi banner -> restart"
     pkill -x sshd >/dev/null 2>&1 || true
     sleep 1
-    /usr/sbin/sshd 2>/dev/null || true
+    "$SSHD_BIN" 2>/dev/null || true
     sleep 2
     sshd_alive && log "sshd da khoi dong lai" || log "sshd van khong phan hoi"
   fi
@@ -75,25 +78,53 @@ log "loop start -> ${LOCAL_USER}@${LOCAL_IP}:${REMOTE_PORT} (key $KEY_PATH)"
 pull_updates() {
   local base="/home/hatch/.muse-bridge"
   local bundle="$base/bundle"
+  local tmp="$base/.pull.$$"
+  # MOT lan ket noi: tai ca bundle bang mot tar stream.
+  # Truoc day 6 lan ssh (~4s moi lan qua proxy) -> 25s; container hay bi giet
+  # vong lap giua chung -> bundle KHONG BAO GI chuyen vao container.
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  if ! timeout 90 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 \
+        -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" \
+        'cd ~/.muse-bridge/bundle && tar cf - VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh 2>/dev/null' \
+        2>/dev/null | tar xf - -C "$tmp" 2>/dev/null; then
+    rm -rf "$tmp"; return 0
+  fi
+  if [ ! -f "$tmp/VERSION" ]; then rm -rf "$tmp"; return 0; fi
   local ver
-  ver=$(timeout 25 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 \
-        -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" 'cat ~/.muse-bridge/bundle/VERSION 2>/dev/null' 2>/dev/null | tr -d '\r')
-  [ -n "$ver" ] || return 0
-  [ "$ver" = "$(cat "$base/.version" 2>/dev/null)" ] && return 0
+  ver="$(tr -d '\r' < "$tmp/VERSION")"
+  [ -n "$ver" ] || { rm -rf "$tmp"; return 0; }
+  [ "$ver" = "$(cat "$base/.version" 2>/dev/null)" ] && { rm -rf "$tmp"; return 0; }
   mkdir -p "$bundle"
   local f
-  for f in bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
-    timeout 25 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
-      -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 \
-      -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" "cat ~/.muse-bridge/bundle/$f" > "$bundle/$f.new" 2>/dev/null || return 0
-    [ -s "$bundle/$f.new" ] || return 0
-  done
   local hook="/home/hatch/hooks/scripts/muse-platform-boot.sh"
-  for f in bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
-    mv -f "$bundle/$f.new" "$bundle/$f"; chmod 700 "$bundle/$f"
+  for f in VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
+    [ -f "$tmp/$f" ] || continue
+    mv -f "$tmp/$f" "$bundle/$f"; chmod 700 "$bundle/$f" 2>/dev/null || true
   done
+  rm -rf "$tmp"
   cp -f "$bundle/bridge.py" "$base/bridge.py" 2>/dev/null || true
+  # inject_watchdog.py MOI phai duoc dung de re-inject hook. Ban trước goi
+  # "$base/inject_watchdog.py" (ban CUU) -> ban moi ve bundle khong bao gio
+  # duoc dung -> sua loi trong injector khong lan xuong container.
+  cp -f "$bundle/inject_watchdog.py" "$base/inject_watchdog.py" 2>/dev/null || true
+  # Tu cap nhat script loop dang chay (per-port) tu bundle: container khong
+  # can may ngoai SSH vao duoc de nhan code moi. Ghi file .new roi mv (atomic)
+  # de khong lam hong bash dang chay script (bash doc file theo offset).
+  local self="$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh"
+  if [ -f "$bundle/reverse-tunnel.sh" ] && [ -f "$self" ] && ! cmp -s "$bundle/reverse-tunnel.sh" "$self"; then
+    cp -f "$bundle/reverse-tunnel.sh" "$self.new" 2>/dev/null && mv -f "$self.new" "$self" 2>/dev/null \
+      && chmod 700 "$self" 2>/dev/null \
+      && log "da tu cap nhat script loop tu bundle (se restart o vong lap tiep theo)"
+  fi
+  # Proxy helper cung tu cap nhat: duong truc tiep truoc, HTTP CONNECT proxy sau.
+  if [ -f "$bundle/ts-socat-proxy.sh" ] && [ -d "$SCRIPT_DIR" ] \
+     && ! cmp -s "$bundle/ts-socat-proxy.sh" "$SCRIPT_DIR/ts-socat-proxy.sh"; then
+    cp -f "$bundle/ts-socat-proxy.sh" "$SCRIPT_DIR/ts-socat-proxy.sh.new" 2>/dev/null \
+      && mv -f "$SCRIPT_DIR/ts-socat-proxy.sh.new" "$SCRIPT_DIR/ts-socat-proxy.sh" 2>/dev/null \
+      && chmod 700 "$SCRIPT_DIR/ts-socat-proxy.sh" 2>/dev/null \
+      && log "da tu cap nhat proxy helper tu bundle"
+  fi
   if [ -f "$hook" ] && [ -f "$base/inject_watchdog.py" ]; then
     python3 "$base/inject_watchdog.py" "$hook" "$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh" \
       "$KEY_PATH" "$PROXY_PATH" "$LOCAL_USER" "$LOCAL_IP" >/dev/null 2>&1 || true
@@ -106,17 +137,15 @@ pull_updates
 # ghi version de watchdog biet khi can restart (script da duoc nang cap)
 printf '%s\n' "$LOOP_VERSION" > "$(dirname "$LOG")/.loop_version" 2>/dev/null || true
 
-PULL_EVERY=5
-PULL_N=0
-while true; do
-  ensure_authorized_keys
-  ensure_sshd
-  PULL_N=$((PULL_N + 1))
-  if [ "$PULL_N" -ge "$PULL_EVERY" ]; then
-    PULL_N=0
-    pull_updates || true
-  fi
-  ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
+tunnel_alive() {
+  pgrep -f "ssh -N -R ${REMOTE_PORT}:127.0.0.1:22" >/dev/null 2>&1
+}
+
+start_tunnel() {
+  # ssh chay NEN: vong lap van tick de check sshd + authorized_keys + tunnel.
+  # Neu chay foreground, sshd chi duoc kiem tra luc tunnel vua rot -> container
+  # mat sshd ma van co 1 session treo thi SSH tu ngoai vao khong bao gio len.
+  nohup ssh -N -R "${REMOTE_PORT}:127.0.0.1:22" \
     -o "ProxyCommand=${PROXY_PATH} %h %p" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
@@ -125,7 +154,23 @@ while true; do
     -o ServerAliveInterval=15 \
     -o ServerAliveCountMax=3 \
     -o ConnectTimeout=15 \
-    -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}"
-  log "tunnel exit ($?). reconnect sau 10s"
+    -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" >> "$LOG" 2>&1 &
+  log "tunnel (re)start pid=$! port=$REMOTE_PORT"
+}
+
+PULL_EVERY=5
+PULL_N=0
+while true; do
+  ensure_authorized_keys
+  ensure_sshd
+  if ! tunnel_alive; then
+    start_tunnel
+    sleep 5
+  fi
+  PULL_N=$((PULL_N + 1))
+  if [ "$PULL_N" -ge "$PULL_EVERY" ]; then
+    PULL_N=0
+    pull_updates || true
+  fi
   sleep 10
 done

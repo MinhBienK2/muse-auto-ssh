@@ -336,7 +336,9 @@ HOOK_EOF
     warn "da tao hook moi + dang ky definition"
   fi
   ensure_hatch_hook
-  if grep -q "muse-bridge watchdog ok" "$hook"; then
+  # Gate theo PHIEN BAN watchdog, khong phoi chuoi "watchdog ok":
+  # hook dang co ban cu se bi skip neu chi kiem tra chuoi chung -> khong bao gio len v6.
+  if grep -q "muse-bridge watchdog v6" "$hook"; then
     PERSISTENCE="hatch-hook(15s)"
     say "watchdog: da co ban moi nhat trong $hook"
     return

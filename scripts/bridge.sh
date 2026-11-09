@@ -15,6 +15,8 @@
 #   prompt --host <id>         render MUSE_PROMPT.md cho host do
 #   push --host <id>           day bundle moi len host do
 #   authorize --host <id> --key '<ssh-ed25519 ...>'  them key cua Muse
+#   doctor                     chan doan trang thai (forward, keepalive, key)
+#   release --host <id>        dung session ssh cu giu port forward (container treo)
 #   selftest                   kiem tra bus hai huong (khong can mang)
 # ==============================================================================
 set -uo pipefail
@@ -26,6 +28,7 @@ LOCAL_SIDE="$REPO_DIR/bridge/local_side.sh"
 case "${1:-}" in
   hosts)     shift; bash "$LOCAL_SIDE" hosts "$@" ;;
   doctor)    shift; bash "$LOCAL_SIDE" doctor "$@" ;;
+  release)   shift; bash "$LOCAL_SIDE" release "$@" ;;
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;

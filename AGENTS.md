@@ -63,3 +63,6 @@ git config core.hooksPath .githooks
   khác nó sẽ FAIL. Dùng `--strict` (chỉ kiểm tra template, không phụ thuộc máy) cho CI.
 - Mỗi Muse host một cổng forward riêng **và một config riêng** (`tunnel-<port>.conf`). Dùng chung một
   `tunnel.conf` là hai port đụng nhau.
+- `openssh-server` (`/usr/sbin/sshd`) không nằm trong base image container → bị mất mỗi khi container refresh (vì `/` là overlay tạm). Phải luôn lưu sẵn các gói deb ở `/home/hatch/.muse-bridge/deb/` (vùng bền vững btrfs) để tự cài lại tức thì bằng `dpkg -i` offline (< 1s); tuyệt đối không trông cậy vào `apt-get` qua proxy (rất hay timeout/chặn).
+- `/run/sshd` (tmpfs) bị mất mỗi lần reboot và umask trong daemon/hook có thể sinh ra quyền `0770` → `sshd` crash lập tức do Privilege Separation. Luôn `chmod 755 /run/sshd /var/run/sshd`.
+- Host keys `/etc/ssh/ssh_host_*_key` bị wipe khi container refresh → phải lưu bền ở `/home/hatch/.muse-bridge/ssh_host/` để khôi phục lại, tránh máy ngoài cảnh báo đổi fingerprint.

@@ -70,7 +70,7 @@ bash scripts/bridge.sh onboard --host muse2
    chat mới và gửi prompt;
 3. **bấm Allow** cho các hộp "Approval required" mà Muse hiện ra (SSH settings, network share);
 4. nếu Muse trả lời cần authorize key → tự thêm public key đó vào `~/.ssh/authorized_keys`;
-5. chờ tunnel lên ở cổng đã gán → **đẩy bus + watchdog vào container** và chạy setup phía Muse;
+5. chờ tunnel lên ở cổng đã gán → **đẩy bus + watchdog + deb cache vào container** (lưu bền ở `/home/hatch/.muse-bridge/deb/`) và chạy setup phía Muse;
 6. xác nhận `PEER_STATE=OK`.
 
 ### 3.2. Thủ công (khi agent không tự động hoá được trình duyệt)
@@ -83,7 +83,7 @@ Dán nội dung đó vào chat của Agent Muse. Agent sẽ báo 4 dòng trạng
 bằng lời của bạn (ngắn, từng bước một). Sau khi tunnel lên, chạy:
 
 ```bash
-bash scripts/bridge.sh push --host muse2       # đẩy bus + watchdog vào container
+bash scripts/bridge.sh push --host muse2       # đẩy bus + watchdog + deb cache vào container
 bash scripts/bridge.sh status --host muse2
 ```
 

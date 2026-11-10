@@ -39,10 +39,9 @@ Báo tôi khi xong (dán nguyên văn dòng lỗi nếu có).
 
 **Bước 2 — bảo đảm `sshd` trong container đang chạy.**
 
-Trước hết kiểm tra `/usr/sbin/sshd` đã có chưa. **Nếu đã có thì chỉ cần tạo `/run/sshd` rồi chạy
+Trước hết kiểm tra `/usr/sbin/sshd` đã có chưa. **Nếu đã có thì chỉ cần tạo `/run/sshd` (nhớ `chmod 755 /run/sshd`) rồi chạy
 `/usr/sbin/sshd`, đừng cài gì cả** — cài `apt` hay bị treo vì container không ra ngoài thẳng được.
 Chỉ khi thật sự không có mới báo tôi.
-
 Sau đó kiểm tra `sshd` thật sự trả lời (mở socket tới `127.0.0.1:22` và đọc 4 byte đầu phải thấy
 `SSH`), chứ đừng chỉ kiểm tra tiến trình còn sống.
 

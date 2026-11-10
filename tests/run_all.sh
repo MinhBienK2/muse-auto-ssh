@@ -31,7 +31,7 @@ skip() {  # skip <ten> <ly-do>
   fi
 }
 
-for t in bus_selftest.sh watchdog_upgrade_test.sh forward_release_test.sh muse_side_test.sh tunnel_loop_test.sh hosts_test.sh; do
+for t in bus_selftest.sh watchdog_upgrade_test.sh forward_release_test.sh muse_side_test.sh tunnel_loop_test.sh tunnel_pattern_test.sh hosts_test.sh muse_web_profile_test.sh; do
   [ -f "$REPO_DIR/tests/$t" ] || continue
   echo "=============================================================="
   echo "== $t"

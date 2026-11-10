@@ -42,7 +42,9 @@ HOST=""
 PORT=""
 LABEL=""
 KEY=""
+PROFILE_DIR=""
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-600}"
+MUSE_WEB_ARGS=()
 
 REST=()
 parse_flags() {
@@ -53,6 +55,7 @@ parse_flags() {
       --port)    PORT="$2"; shift 2 ;;
       --label)   LABEL="$2"; shift 2 ;;
       --key)     KEY="$2"; shift 2 ;;
+      --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
       --timeout) WAIT_TIMEOUT="$2"; shift 2 ;;
       *) REST+=("$1"); shift ;;
     esac
@@ -216,6 +219,13 @@ next_free_port() {
   echo "$p"
 }
 
+# CDP port cho driver web: 9222 la mac dinh, host khac lay port trong 9230-9299.
+next_free_cdp_port() {
+  local p=9230
+  while ss -tln 2>/dev/null | grep -q ":$p\b"; do p=$((p+1)); done
+  echo "$p"
+}
+
 write_ssh_alias() {
   local id="$1" port="$2"
   local cfg="$HOME/.ssh/config"
@@ -256,6 +266,18 @@ add_host() {
   local local_spool="$SPOOLS_DIR/$id"
   mkdir -p "$local_spool"/{inbox,outbox,pending,read,logs}
 
+  # Driver web: host nao dung Chrome rieng (khong phai account Default) thi can
+  # CDP port + clone dir rieng, tranh dung chung instance cua host khac.
+  local profile_dir="${PROFILE_DIR:-Default}"
+  local cdp_port clone_dir
+  if [ "$profile_dir" = "Default" ]; then
+    cdp_port=9222
+    clone_dir="/tmp/muse-chrome-profile"
+  else
+    cdp_port="$(next_free_cdp_port)"
+    clone_dir="/tmp/muse-chrome-profile-$id"
+  fi
+
   cat > "$(host_config "$id")" <<EOF
 {
   "id": "$id",
@@ -284,6 +306,9 @@ EOF
   "local_spool": "$local_spool",
   "muse_spool": "$REMOTE_SPOOL",
   "muse_url": "$MUSE_URL",
+  "web_profile_dir": "$profile_dir",
+  "web_cdp_port": $cdp_port,
+  "web_clone_dir": "$clone_dir",
   "state": "registered"
 }
 EOF
@@ -635,15 +660,29 @@ cmd_authorize() {
 }
 
 # ------------------------------------------------------------------ onboard
+# Driver web theo host: profile Chrome + CDP port + clone dir rieng cho tung host.
+muse_web_args() {
+  local profile_dir cdp_port clone_dir
+  profile_dir="$(card_field "$HOST" "web_profile_dir")"
+  cdp_port="$(card_field "$HOST" "web_cdp_port")"
+  clone_dir="$(card_field "$HOST" "web_clone_dir")"
+  [ -n "$profile_dir" ] || profile_dir="Default"
+  [ -n "$cdp_port" ] || cdp_port=9222
+  [ -n "$clone_dir" ] || clone_dir="/tmp/muse-chrome-profile"
+  MUSE_WEB_ARGS=(--cdp-port "$cdp_port" --profile-dir "$profile_dir" --clone-dir "$clone_dir")
+}
+
 muse_web_send() {  # $1 = file, $2 = thread (rong = tao chat moi), $3 = wait regex
   local file="$1" thread="$2" wait="$3"
   local args=(send --file "$file" --url "$MUSE_URL" --wait-for "$wait" --timeout "$WAIT_TIMEOUT")
   [ -n "$thread" ] && args+=(--thread "$thread")
   [ -n "$thread" ] || args+=(--new-chat)
-  python3 "$MUSE_WEB" "${args[@]}" 2>&1
+  muse_web_args
+  python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" "${args[@]}" 2>&1
 }
 
 cmd_onboard() {
+  parse_flags "$@"
   require_host
   local port; port="$(host_peer_port "$HOST")"
   local spool; spool="$(host_local_spool "$HOST")"
@@ -676,7 +715,8 @@ cmd_onboard() {
       say "KET NOI DUOC (port $port)"
       break
     fi
-    python3 "$MUSE_WEB" reply --wait-for "DIRECT_OK|trong suốt|tunnel|cổng|không|lỗi" \
+    muse_web_args
+    python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" reply --wait-for "DIRECT_OK|trong suốt|tunnel|cổng|không|lỗi" \
       --timeout 90 > "$reply_file" 2>&1 || true
 
     # neu reply chua public key cua Muse -> authorize o may ngoai

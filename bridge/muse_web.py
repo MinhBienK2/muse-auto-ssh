@@ -11,6 +11,7 @@ Tinh huong dung:
 
 Lenh:
   python3 muse_web.py ensure  [--cdp-port 9222] [--profile-src DIR] [--clone-dir DIR]
+                               [--profile-dir NAME]
   python3 muse_web.py send    --file PROMPT [--url URL] [--cdp-port 9222]
                                [--wait-for REGEX] [--timeout 300] [--reply-out FILE]
                                [--thread URL] [--new-chat]
@@ -35,6 +36,7 @@ import urllib.request
 DEFAULT_URL = "https://muse.ai/"
 DEFAULT_CDP_PORT = 9222
 DEFAULT_CLONE_DIR = "/tmp/muse-chrome-profile"
+DEFAULT_PROFILE_DIR = "Default"
 COMPOSER = "textarea[aria-label=\"Message\"]"
 
 
@@ -209,12 +211,17 @@ def chrome_binary() -> str:
     raise RuntimeError("khong tim thay Chrome")
 
 
-def clone_profile(src: str, dst: str) -> None:
-    """Copy cookie/session sang profile moi (de mo Chrome rieng, khong chan user)."""
+def clone_profile(src: str, dst: str, profile_dir: str = "Default") -> None:
+    """Copy cookie/session sang profile moi (de mo Chrome rieng, khong chan user).
+
+    `profile_dir` la ten thu muc profile trong `src` (Default, Profile 2, ...).
+    TEN thu muc phai giu nguyen trong clone: Chrome gan cookie theo duong dan
+    profile, nen doi ten `Profile 2` -> `Default` se lam mat phi dang nhap.
+    """
     if os.path.isdir(dst):
         return
     os.makedirs(dst, exist_ok=True)
-    os.makedirs(os.path.join(dst, "Default"), exist_ok=True)
+    os.makedirs(os.path.join(dst, profile_dir), exist_ok=True)
     ls = os.path.join(src, "Local State")
     if os.path.isfile(ls):
         shutil.copy2(ls, os.path.join(dst, "Local State"))
@@ -228,22 +235,40 @@ def clone_profile(src: str, dst: str) -> None:
         "Session Storage",
         "IndexedDB",
     ):
-        s = os.path.join(src, "Default", name)
-        if os.path.exists(s):
+        s = os.path.join(src, profile_dir, name)
+        if not os.path.exists(s):
+            continue
+        d = os.path.join(dst, profile_dir, name)
+        # Chrome dang chay: file sqlite co the dang bi ghi -> thu lai vai lan.
+        for _ in range(3):
             try:
-                shutil.copytree(s, os.path.join(dst, "Default", name), dirs_exist_ok=True)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                else:
+                    # Cookies/Preferences/Login Data/Web Data la FILE, khong phai
+                    # thu muc -> copytree se nem NotADirectoryError va bo qua im lang.
+                    shutil.copy2(s, d)
+                break
             except (OSError, shutil.Error):
-                pass
+                time.sleep(1)
 
 
-def ensure_chrome(port: int, profile_src: str, clone_dir: str, headed: bool = False) -> str:
+def ensure_chrome(
+    port: int,
+    profile_src: str,
+    clone_dir: str,
+    headed: bool = False,
+    profile_dir: str = "Default",
+) -> str:
     if cdp_alive(port):
         return "http://127.0.0.1:%d" % port
-    clone_profile(profile_src, clone_dir)
+    clone_profile(profile_src, clone_dir, profile_dir)
     args = [
         chrome_binary(),
         "--remote-debugging-port=%d" % port,
         "--user-data-dir=%s" % clone_dir,
+        # Mo DUNG profile da clone (khong doi ten) - xem clone_profile().
+        "--profile-directory=%s" % profile_dir,
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-background-networking",
@@ -449,14 +474,18 @@ def wait_for(cdp: CDP, pattern: str, timeout: float) -> str:
 
 # --------------------------------------------------------------------- commands
 def cmd_ensure(args) -> int:
-    url = ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
+    url = ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
     print("CDP=%s" % url)
     print("PROFILE_CLONE=%s" % args.clone_dir)
     return 0
 
 
 def cmd_send(args) -> int:
-    ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
+    ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
     page = find_page(args.cdp_port)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
@@ -506,7 +535,9 @@ def cmd_send(args) -> int:
 
 def cmd_say(args) -> int:
     """Gui mot tin nhan ngan vao thread hien tai (dung cho vong lap doi thoai)."""
-    ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
+    ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
     page = attach_page(args.cdp_port, args.thread)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
@@ -542,7 +573,9 @@ def cmd_say(args) -> int:
 
 
 def cmd_reply(args) -> int:
-    ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
+    ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
     page = attach_page(args.cdp_port, args.thread)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
@@ -580,6 +613,11 @@ def main() -> int:
     ap.add_argument("--cdp-port", type=int, default=DEFAULT_CDP_PORT)
     ap.add_argument("--profile-src", default=os.path.expanduser("~/.config/google-chrome"))
     ap.add_argument("--clone-dir", default=DEFAULT_CLONE_DIR)
+    ap.add_argument(
+        "--profile-dir",
+        default=DEFAULT_PROFILE_DIR,
+        help="thu muc profile Chrome can dung (Default, 'Profile 2', ...)",
+    )
     ap.add_argument("--headed", action="store_true", help="hien thi cua so Chrome (mac dinh: headless)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -623,7 +661,9 @@ def main() -> int:
         if args.cmd == "say":
             return cmd_say(args)
         if args.cmd == "approve":
-            ensure_chrome(args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed)
+            ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
             page = find_page(args.cdp_port)
             cdp = CDP(page["webSocketDebuggerUrl"])
             try:

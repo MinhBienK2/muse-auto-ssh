@@ -106,6 +106,22 @@ Mỗi Muse host một cổng riêng (`2222`, `2223`, …), một SSH alias riên
 một spool riêng. Thông tin kết nối lưu ở `.muse-hosts/<id>.json` **trong repo nhưng đã gitignore**
 — tức là có trên máy bạn, không push lên Git.
 
+### Nhiều tài khoản Muse (khác account Chrome)
+
+Mỗi tài khoản Muse đăng nhập trong một **Chrome profile riêng**. Driver web chỉ clone được cookie
+của profile đó, nên host mới phải khai báo profile cần dùng:
+
+```bash
+bash scripts/bridge.sh add-host --host muse3 --port 2224 --profile-dir "Profile 2"
+bash scripts/bridge.sh onboard --host muse3
+```
+
+Xem tên profile Chrome: `~/.config/google-chrome/Local State` → `profile.info_cache` (key = tên thư mục,
+value = tên hiển thị). Bỏ `--profile-dir` thì dùng `Default`.
+
+Mỗi host có **CDP port và clone dir riêng** (ghi trong `.muse-hosts/<id>.json`: `web_cdp_port`,
+`web_clone_dir`) → chạy song song nhiều host, mỗi host một Chrome clone độc lập, không đụng nhau.
+
 ### Đảo chiều (Flow B)
 
 Agent Ngoài làm trước (`arm` + `prompt`), rồi bạn dán prompt vào Muse → kích hoạt ngay,
@@ -176,6 +192,8 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse + config per-port
 │   ├── tunnel_loop_test.sh      # vòng lặp tunnel + proxy helper (stub, không cần container)
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
+│   ├── muse_web_profile_test.sh # driver web clone đúng Chrome profile (multi-account)
+│   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
 │   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
 ├── .githooks/pre-commit         # hook: chạy selftest trước mỗi commit
 └── legacy/                      # script của thiết kế cũ (xem legacy/README.md)
@@ -189,6 +207,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 |---|---|
 | `bash scripts/bridge.sh hosts` | Liệt kê Muse host đang quản lý |
 | `bash scripts/bridge.sh add-host --host <id>` | Đăng ký Muse host mới (port, ssh alias, spool) |
+| `bash scripts/bridge.sh add-host --host <id> --profile-dir "Profile 2"` | Như trên, nhưng host dùng Chrome profile (account) khác `Default` |
 | `bash scripts/bridge.sh arm` | Chuẩn bị máy (idempotent) |
 | `bash scripts/bridge.sh onboard --host <id>` | Zero-touch: tự dán prompt vào web Muse + chờ kênh thông |
 | `bash scripts/bridge.sh status` | Trạng thái kênh + số tin |
@@ -221,6 +240,9 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Port `2222` bận | Tunnel cũ còn treo | `ss -tlnp | grep 2222` → dừng tunnel cũ rồi `bridge.sh push` |
 | `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo, hoặc container đã đóng băng | Watchdog v6 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → `bash scripts/bridge.sh repair --host <id>` (đánh thức qua web) |
 | Container báo "remote port forwarding failed for listen port 2222" | Session ssh cũ còn treo trên máy ngoài và đang giữ port | `bash scripts/bridge.sh release --host <id>` (dừng đúng session giữ port); lâu dài: `sudo bash scripts/install_sshd_keepalive.sh` (1 lần) để sshd tự đóng session treo |
+| Container báo "remote port forwarding failed" **liên tục mỗi 15s** | Có **hai** supervisor cùng mở 1 port (ví dụ Agent Muse tự viết thêm script tunnel trong `/root/.ssh/`) | Trong container: `pgrep -af "ssh .*-R <port>:"` → dừng script thừa, chỉ giữ `/home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel-<port>.sh` |
+| Web driver mở ra trang "Log in" của muse.ai | Clone Chrome đổi tên profile (`Profile 2` → `Default`) nên mất phiên đăng nhập | Clone phải **giữ nguyên tên profile** và mở bằng `--profile-directory` (xem `bridge/muse_web.py`) |
+| Container mới không tới được máy bạn (proxy đóng CONNECT tới IP Tailscale) | Container chưa có node Tailscale | Agent sẽ tạo link `login.tailscale.com` → bạn đăng nhập + duyệt node → container có IP tailnet riêng |
 | Container bị đóng băng, không tiến trình nào chạy | Nền tảng suspend/checkpoint container | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức; daemon tự làm mỗi 5 phút |
 | Muse không đăng nhập được vào máy mình | `sshd` trong container đọc `/root/.ssh/authorized_keys`, không phải `~/.ssh/authorized_keys` của user `hatch` | Ghi key vào **cả hai** file (prompt mới đã làm sẵn) |
 | Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |

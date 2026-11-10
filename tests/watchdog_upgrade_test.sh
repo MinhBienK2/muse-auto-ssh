@@ -75,8 +75,13 @@ fi
 # --- v6 phai gan theo port (khong dung unit generic) -------------------------
 grep -q 'UNIT="muse-reverse-tunnel-2222.service"' "$HOOK"
 check "v6 dung unit per-port" $?
-grep -q "ssh -N -R 2222:" "$HOOK"
+# Pattern pgrep phai theo "-R <port>:" KHONG phu thuoc thu tu flag cua lenh ssh
+# ("ssh -i KEY -N -R ..." -> pattern "ssh -N -R" that bai -> watchdog spawn
+#  them va giu chet port forward).
+grep -q -- '-R 2222:' "$HOOK"
 check "v6 pgrep theo port" $?
+grep -q 'pgrep -f .ssh -N -R' "$HOOK"
+if [ $? -eq 0 ]; then echo "  FAIL - v6 van dung pattern phu thuoc thu tu flag"; fails=$((fails+1)); else echo "  ok   - v6 dung pattern khong phu thuoc thu tu flag"; fi
 grep -q "muse-reverse-tunnel.service" "$HOOK"
 if [ $? -eq 0 ]; then echo "  FAIL - v6 van tro toi unit generic"; fails=$((fails+1)); else echo "  ok   - v6 khong con unit generic"; fi
 

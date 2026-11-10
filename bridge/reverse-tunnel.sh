@@ -183,7 +183,11 @@ pull_updates
 printf '%s\n' "$LOOP_VERSION" > "$(dirname "$LOG")/.loop_version" 2>/dev/null || true
 
 tunnel_alive() {
-  pgrep -f "ssh -N -R ${REMOTE_PORT}:127.0.0.1:22" >/dev/null 2>&1
+  # KHONG khop "ssh -N -R ...": thu tu flag co the khac nhau
+  # (vi du "ssh -i KEY -N -R ..." cua script khac) -> pattern do bo qua het
+  # ssh dang chay, watchdog spawn them va giu chet port forward.
+  # Khop theo "-R <port>:" de khong phu thuoc thu tu flag.
+  pgrep -f -- "-R ${REMOTE_PORT}:127.0.0.1:22" >/dev/null 2>&1
 }
 
 start_tunnel() {

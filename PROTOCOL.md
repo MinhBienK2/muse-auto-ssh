@@ -38,10 +38,17 @@ Một máy cá nhân có thể chạy **nhiều máy Muse** cùng lúc. Mỗi ho
 | SSH alias | trùng `id` | `ssh muse2` → `127.0.0.1:2223` |
 | Spool phía máy ngoài | `~/.muse-bridge/spools/<id>/` | `~/.muse-bridge/spools/muse2/` |
 | Spool phía Muse | `/root/.muse-bridge/` (mỗi container một bản) | — |
+| Chrome profile (account Muse) | `--profile-dir` lúc `add-host` | `Profile 2` |
+| CDP port + clone dir của driver web | `web_cdp_port` / `web_clone_dir` trong thẻ | `9230` / `/tmp/muse-chrome-profile-muse2` |
 | Thẻ thông tin kết nối | `.muse-hosts/<id>.json` **trong repo, gitignored** | không push lên git |
 
 Runtime config: `~/.muse-bridge/hosts/<id>.json` (schema giống nhau, mỗi host một file).
 Mọi lệnh của bus nhận `--host <id>`; tin nhắn có trường `host` để biết tin đó đến từ Muse nào.
+
+Mỗi tài khoản Muse đăng nhập trong một **Chrome profile riêng**, nên driver web phải clone **đúng
+profile** và mở Chrome bằng `--profile-directory` giữ nguyên tên profile — đổi tên thư mục profile
+làm mất phiên đăng nhập (muse.ai hiện trang "Log in"). Mỗi host dùng một CDP port + clone dir riêng
+để chạy song song, không đụng nhau.
 
 ```mermaid
 flowchart LR
@@ -240,6 +247,14 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 > (`remote port forwarding failed for listen port 2222`) và SSH không lên được. Máy ngoài phải có
 > `ClientAliveInterval` để sshd tự đóng session treo đó:
 > `sudo bash scripts/install_sshd_keepalive.sh` (chạy 1 lần).
+
+> **Mỗi port chỉ được có MỘT supervisor.** Lớp 1 (systemd) và lớp 3 (loop) là hai mặt của cùng một
+> cơ chế — systemd chạy loop. Nếu Agent Muse tự viết thêm script tunnel (thường đặt ở `/root/.ssh/`,
+> vốn bị wipe mỗi lần refresh nên cũng mất), hai supervisor sẽ tranh cùng một port forward và
+> container log đầy `remote port forwarding failed for listen port <port>` mỗi 15s.
+> Vì vậy watchdog phải phát hiện tunnel theo `-R <port>:` (không phụ thuộc thứ tự flag của lệnh ssh:
+> `ssh -N -R …` và `ssh -i KEY -N -R …` là hai lệnh khác nhau về mặt chuỗi) — nếu không, watchdog
+> tưởng tunnel đã chết và spawn thêm. Kiểm tra: `pgrep -af "ssh .*-R <port>:"` phải ra **đúng 1** dòng.
 
 > Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) hoặc treo (suspend) container** — lúc đó
 > không tiến trình nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container

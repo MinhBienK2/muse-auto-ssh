@@ -133,6 +133,18 @@ bash scripts/bridge.sh add-host --host muse3 --port 2224
 Mỗi host một cổng forward, một SSH alias (`ssh muse3`), một spool riêng. Thông tin kết nối nằm ở
 `.muse-hosts/<id>.json` **trong repo nhưng gitignored** → có trên máy bạn, không push lên Git.
 
+### 6.1 Host dùng account Chrome khác
+
+Driver web chỉ dán prompt được vào tài khoản Muse đã đăng nhập trong Chrome. Nếu tài khoản nằm ở
+Chrome profile khác `Default`, khai báo lúc đăng ký host:
+
+```bash
+bash scripts/bridge.sh add-host --host muse3 --port 2224 --profile-dir "Profile 2"
+```
+
+Tên thư mục profile: đọc `~/.config/google-chrome/Local State` → `profile.info_cache` (key = tên thư
+mục như `Default`, `Profile 2`). Mỗi host có CDP port + clone dir riêng → chạy song song được.
+
 ---
 
 ## 7. Trạng thái & sự cố

@@ -4,6 +4,7 @@
 #
 #   hosts                      danh sach cac Muse host da dang ky
 #   add-host --host <id>       dang ky Muse host moi (port, ssh alias, spool)
+#                              [--profile-dir "Profile 2"]  <- Chrome profile/account
 #   onboard --host <id>       \x{1}trong suot: dang ky -> gui prompt qua web Muse -> xac nhan
 #   arm --host <id>            chuan bi moi truong may ngoai (idempotent)
 #   status --host <id>         trang thai kenh hai chieu

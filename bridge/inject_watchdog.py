@@ -147,14 +147,16 @@ if [ -n "$WANT" ] && [ "$WANT" != "$HAVE" ]; then
         systemctl restart "$UNIT" >/dev/null 2>&1 || true
     else
         pkill -f "[b]ash @@LOOP@@" >/dev/null 2>&1 || true
-        pkill -f "[s]sh -N -R @@PORT@@:" >/dev/null 2>&1 || true
+        pkill -f -- "[s]sh .*-R @@PORT@@:" >/dev/null 2>&1 || true
     fi
     sleep 2
 fi
 # 4) fallback: CHI khi khong co systemd unit moi tu chay loop
 #    (co unit thi hook KHONG duoc spawn them -> 2 supervisor tranh port -R)
+#    Khop theo "-R <port>:" de khong phu thuoc thu tu flag cua lenh ssh
+#    (co the la "ssh -i KEY -N -R ...").
 if [ "$HAVE_SYSTEMD" != "1" ] || [ ! -f "/etc/systemd/system/$UNIT" ]; then
-    if ! pgrep -f 'ssh -N -R @@PORT@@:' >/dev/null 2>&1; then
+    if ! pgrep -f -- "-R @@PORT@@:" >/dev/null 2>&1; then
         nohup /bin/bash @@LOOP@@ >> @@LOG@@ >/dev/null 2>&1 &
     fi
 fi

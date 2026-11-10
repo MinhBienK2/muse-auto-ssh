@@ -202,11 +202,13 @@ EOF
 
 ensure_tunnel() {
   write_tunnel_conf
-  if pgrep -af "ssh -N -R $LOCAL_PORT:" >/dev/null 2>&1; then
+  # Khop theo "-R <port>:" de khong phu thuoc thu tu flag cua lenh ssh
+  # (co the la "ssh -i KEY -N -R ...").
+  if pgrep -af -- "-R $LOCAL_PORT:" >/dev/null 2>&1; then
     TUNNEL_STATE="ADOPTED"
     say "tunnel: ADOPT (port $LOCAL_PORT da chay, khong restart)"
-    pgrep -af "ssh -N -R $LOCAL_PORT:" | sed 's/^/    /'
-  elif pgrep -af 'ssh -N -R' >/dev/null 2>&1; then
+    pgrep -af -- "-R $LOCAL_PORT:" | sed 's/^/    /'
+  elif pgrep -af -- '-R .*:127.0.0.1:22' >/dev/null 2>&1; then
     warn "co tunnel khac dang chay (khac port) - se mo them tunnel cho port $LOCAL_PORT"
     TUNNEL_STATE="STARTED"
     nohup /bin/bash "$LOOP" >> "$BASE/tunnel/tunnel.log" 2>&1 </dev/null &
@@ -216,7 +218,7 @@ ensure_tunnel() {
     say "tunnel: STARTED"
     nohup /bin/bash "$LOOP" >> "$BASE/tunnel/tunnel.log" 2>&1 </dev/null &
     sleep 3
-    pgrep -af 'ssh -N -R' >/dev/null 2>&1 || warn "loop chua len duoc - xem $BASE/tunnel/tunnel.log"
+    pgrep -af -- "-R $LOCAL_PORT:" >/dev/null 2>&1 || warn "loop chua len duoc - xem $BASE/tunnel/tunnel.log"
   fi
 }
 
@@ -416,7 +418,7 @@ status_report() {
   host="$(hostname)"
   keypath="$KEY"
   persistence="${PERSISTENCE:-unknown}"
-  if pgrep -f 'ssh -N -R' >/dev/null 2>&1; then tunnel="up"; else tunnel="down"; fi
+  if pgrep -f -- '-R .*:127.0.0.1:22' >/dev/null 2>&1; then tunnel="up"; else tunnel="down"; fi
   if bus status --json >/tmp/muse_status.json 2>/dev/null; then probe="OK"; else probe="FAILED"; fi
   cat <<EOF
 MUSE_HOST=$host
@@ -487,7 +489,7 @@ cmd_worker() {
   touch "$seen"
   while true; do
     pgrep -x sshd >/dev/null 2>&1 || { mkdir -p /run/sshd /var/run/sshd; /usr/sbin/sshd 2>/dev/null || true; }
-    pgrep -f 'ssh -N -R' >/dev/null 2>&1 || {
+    pgrep -f -- '-R .*:127.0.0.1:22' >/dev/null 2>&1 || {
       nohup /bin/bash "$LOOP" >> "$BASE/tunnel/tunnel.log" 2>&1 </dev/null &
       say "worker: khoi dong lai tunnel"
     }

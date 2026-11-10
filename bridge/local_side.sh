@@ -640,6 +640,8 @@ cmd_hosts() {
   for id in $ids; do
     local port state
     port="$(host_peer_port "$id")"
+    # Cap nhat card truoc khi doc state, neu thi in gia tri cu (sai).
+    python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$id")" "$port" >/dev/null 2>&1 || true
     state="$(card_field "$id" "state")"
     printf '%-12s %-6s %-10s %-12s %s\n' "$id" "$port" "$id" "$(host_local_spool "$id")" "${state:-unknown}"
   done
@@ -763,6 +765,13 @@ cmd_onboard() {
     warn "chua thac ket noi duoc host tren port $port (xem $dir/web.log)"
   fi
 
+  # Luu thread vao card: lop 4 (auto-repair qua web) can thread de danh thuc
+  # container bi dong bang. Khong luu -> host moi khong bao gio duoc danh thuc.
+  if [ -n "$thread" ]; then
+    python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread"
+  else
+    warn "khong lay duoc THREAD_URL tu web -> card khong co 'thread', auto-repair qua web se khong chay"
+  fi
   python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port"
 }
 
@@ -821,8 +830,10 @@ muse_repair_over_ssh() {
 
   say "SSH vao duoc -> sua qua SSH (khong gui tin nhan vao chat)"
 
-  # 1) khoi phuc symlink ben vung (truong hop container vua refresh)
-  ssh_host "$port" 'mkdir -p /root/.ssh /home/hatch/.ssh && chmod 700 /root/.ssh /home/hatch/.ssh 2>/dev/null; if [ -f /home/hatch/.ssh/authorized_keys ] && [ ! -e /root/.ssh/authorized_keys ]; then ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys; fi; true' >/dev/null 2>&1 || true
+  # 1) khoi phuc key ben vung (truong hop container vua refresh)
+  #    COPY tu seed, KHONG symlink: /home/hatch group-writable -> sshd StrictModes
+  #    tu choi key -> Permission denied. Da kiem chung tren container that.
+  ssh_host "$port" 'mkdir -p /root/.ssh && chmod 700 /root/.ssh 2>/dev/null; SEED=/home/hatch/.muse-bridge/authorized_keys.seed; if [ -f "$SEED" ] && [ ! -f /root/.ssh/authorized_keys ]; then cp -f "$SEED" /root/.ssh/authorized_keys 2>/dev/null && chmod 600 /root/.ssh/authorized_keys; fi; true' >/dev/null 2>&1 || true
 
   # 2) day lai bundle + chay setup (idempotent): bus, config, watchdog, loop, systemd
   muse_provision "$port" "$ts_ip" "$spool"
@@ -837,6 +848,17 @@ muse_repair_over_ssh() {
 }
 
 # ------------------------------------------------------------------ repair (auto-wake)
+# Tim thread web cua host khi card chua luu (host moi, hoac card bi xoa).
+# Dung driver web cua dung account (Chrome profile rieng cua host) -> dung
+# side chat/chat cua Agent Muse.
+find_thread_web() {
+  local port="$1"
+  local out
+  muse_web_args
+  out="$(python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" find-thread --port "$port" 2>&1)" || return 1
+  printf '%s' "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-
+}
+
 cmd_repair() {
   parse_flags "$@"
   require_host
@@ -870,6 +892,14 @@ cmd_repair() {
   fi
 
   if [ -z "$thread" ]; then
+    say "host '$HOST' chua luu thread web -> thu tim qua driver web..."
+    thread="$(find_thread_web "$port" || true)"
+    if [ -n "$thread" ]; then
+      say "da tim thread: $thread"
+      python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread"
+    fi
+  fi
+  if [ -z "$thread" ]; then
     warn "host '$HOST' chua luu thread web -> khong tu danh thuc duoc."
     warn "Mo https://muse.ai/ va day len chat cua Agent Muse:"
     warn "  \"Kenh SSH toi may toi bi tat. Ban hay mo lai reverse tunnel cong $port (dung lenh da dung truoc do) roi bao toi.\""
@@ -896,7 +926,7 @@ cmd_repair() {
     "" \
     "4) Mở lại reverse tunnel cổng $port bằng đúng script reverse-tunnel-$port.sh trong thư mục tunnel của bạn, và bảo đảm nó dùng đúng file cấu hình riêng của cổng $port (REMOTE_PORT=\"$port\"), không dùng chung file của cổng khác." \
     "" \
-    "5) Báo lại kết quả từng bước, kèm output của pgrep -af 'ssh -N -R $port:' và tail -15 tunnel.log." \
+    "5) Báo lại kết quả từng bước, kèm output của pgrep -af 'ssh .*-R $port:' và tail -15 tunnel.log." \
     "" \
     "Lưu ý: không tạo key mới và không sửa gì trên máy tôi." > "$msg"
 
@@ -968,8 +998,9 @@ cmd_doctor() {
   if [ -z "$ids" ]; then say "chua co Muse host nao"; return 0; fi
   for id in $ids; do
     local port; port="$(host_peer_port "$id")"
-    local state; state="$(card_field "$id" "state")"
+    # Cap nhat card TRUOC khi doc state, neu thi in gia tri cu (sai).
     python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$id")" "$port" >/dev/null 2>&1 || true
+    local state; state="$(card_field "$id" "state")"
     printf '%-10s port=%-6s ' "$id" "$port"
     if ss -tln 2>/dev/null | grep -q ":$port\b"; then printf 'forward=LISTEN '; else printf 'forward=DOWN  '; fi
     if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi

@@ -27,9 +27,11 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -572,6 +574,67 @@ def cmd_say(args) -> int:
         cdp.close()
 
 
+def candidate_threads(profile_src: str, profile_dir: str, limit: int = 12) -> list:
+    """Danh sach URL thread muse.ai tu History cua Chrome profile (moi nhat truoc)."""
+    hist = os.path.join(profile_src, profile_dir, "History")
+    if not os.path.isfile(hist):
+        return []
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(prefix="muse-hist-", suffix=".db")
+        os.close(fd)
+        shutil.copy2(hist, tmp)
+        con = sqlite3.connect(tmp)
+        rows = con.execute(
+            "select url from urls where url like '%muse.ai/thread/%' and url not like '%/new' "
+            "order by last_visit_time desc limit ?",
+            (limit,),
+        ).fetchall()
+        con.close()
+    except (OSError, sqlite3.Error):
+        return []
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    seen = []
+    for (url,) in rows:
+        if url not in seen:
+            seen.append(url)
+    return seen
+
+
+def cmd_find_thread(args) -> int:
+    """Tim thread web cua Agent Muse theo cong tunnel (de auto-repair khong can copy/paste)."""
+    ensure_chrome(
+        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
+    )
+    page = find_page(args.cdp_port)
+    cdp = CDP(page["webSocketDebuggerUrl"])
+    try:
+        cdp.call("Page.enable")
+        cdp.call("Runtime.enable")
+        needle = str(args.port)
+        for url in candidate_threads(args.profile_src, args.profile_dir):
+            cdp.call("Page.navigate", {"url": url})
+            for _ in range(40):
+                time.sleep(0.5)
+                if cdp.evaluate("document.readyState") in ("interactive", "complete"):
+                    break
+            time.sleep(2)
+            text = page_text(cdp) or ""
+            if needle in text:
+                print("THREAD=%s" % url)
+                print("THREAD_URL=%s" % url)
+                return 0
+        print("THREAD_URL=")
+        return 1
+    finally:
+        cdp.close()
+
+
 def cmd_reply(args) -> int:
     ensure_chrome(
         args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
@@ -645,6 +708,9 @@ def main() -> int:
     approve_p.add_argument("--mode", default="once", choices=["once", "always", "deny"])
     approve_p.add_argument("--rounds", type=int, default=6)
 
+    ft = sub.add_parser("find-thread")
+    ft.add_argument("--port", required=True, help="cong tunnel cua host, de tim chat tuong ung")
+
     r = sub.add_parser("reply")
     r.add_argument("--wait-for", default="")
     r.add_argument("--timeout", type=float, default=120)
@@ -662,8 +728,12 @@ def main() -> int:
             return cmd_say(args)
         if args.cmd == "approve":
             ensure_chrome(
-        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
-    )
+                args.cdp_port,
+                args.profile_src,
+                args.clone_dir,
+                headed=args.headed,
+                profile_dir=args.profile_dir,
+            )
             page = find_page(args.cdp_port)
             cdp = CDP(page["webSocketDebuggerUrl"])
             try:
@@ -673,6 +743,8 @@ def main() -> int:
                 cdp.close()
         if args.cmd == "reply":
             return cmd_reply(args)
+        if args.cmd == "find-thread":
+            return cmd_find_thread(args)
     except Exception as exc:  # noqa: BLE001
         print("muse_web: %s" % exc, file=sys.stderr)
         return 1

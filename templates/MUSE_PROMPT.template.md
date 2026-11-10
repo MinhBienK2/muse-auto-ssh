@@ -28,11 +28,14 @@ một việc, rồi báo tôi kết quả từng bước.
 Nhưng `/root` của container **bị xoá mỗi lần container refresh**, còn `/home/hatch` là vùng bền
 vững. Nên hãy làm theo cách này để key không mất:
 
-1. ghi key của tôi vào `/home/hatch/.ssh/authorized_keys` (vùng bền);
-2. tạo `/root/.ssh/authorized_keys` là **symlink** trỏ tới file đó, để `sshd` vẫn đọc được.
+1. ghi key của tôi vào `/home/hatch/.ssh/authorized_keys` (vùng bền) — đây là bản gốc để dựng lại;
+2. **copy** (không symlink) sang `/root/.ssh/authorized_keys` với quyền 600.
+
+**Không dùng symlink**: `/home/hatch` là group-writable, mà `sshd` bật `StrictModes` sẽ từ chối
+key đó và đăng nhập hỏng (`Permission denied (publickey,password)`) dù đường mạng vẫn thông.
 
 ```bash
-mkdir -p /home/hatch/.ssh /root/.ssh && chmod 700 /home/hatch/.ssh /root/.ssh && echo '{{LOCAL_PUBKEY}}' >> /home/hatch/.ssh/authorized_keys && chmod 600 /home/hatch/.ssh/authorized_keys && rm -f /root/.ssh/authorized_keys && ln -sf /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && echo KEY_OK
+mkdir -p /home/hatch/.ssh /root/.ssh && chmod 700 /home/hatch/.ssh /root/.ssh && echo '{{LOCAL_PUBKEY}}' >> /home/hatch/.ssh/authorized_keys && chmod 600 /home/hatch/.ssh/authorized_keys && cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo KEY_OK
 ```
 
 Báo tôi khi xong (dán nguyên văn dòng lỗi nếu có).

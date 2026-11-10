@@ -74,7 +74,10 @@ tin trong `PROTOCOL.md` mục 7. Sửa một trong hai = lỗi.
 
 **Quy tắc.** Mọi lệnh setup phải chạy lại được mà không phá trạng thái đang chạy.
 
-- Nếu tunnel đã lên (`pgrep -af "ssh -N -R <port>:"`) → **adopt**, không kill, không mở thêm.
+- Nếu tunnel đã lên (`pgrep -af "ssh .*-R <port>:"`) → **adopt**, không kill, không mở thêm.
+  Khop theo `-R <port>:` chứ **không** theo `"ssh -N -R <port>:"`: lệnh ssh thật có thể đặt
+  `-i KEY` trước `-N` → pattern cứng không khớp → watchdog tưởng tunnel chết và spawn thêm
+  (hai supervisor tranh port → `remote port forwarding failed`). Xem `tests/tunnel_pattern_test.sh`.
 - Ghi file bằng cách atomic: viết `<file>.tmp.$$` rồi `mv` — không ghi đè tại chỗ (container Muse
   có thể đang đọc file đó).
 - Idempotency của script sinh ra phải được **kiểm tra bằng test**, không bằng niềm tin.

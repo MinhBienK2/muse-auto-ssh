@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cap nhat trang thai the sinh vao .muse-hosts/<id>.json (card thong tin ket noi, gitignored).
 
-Usage: python3 scripts/update_host_state.py <card.json> <port>
+Usage: python3 scripts/update_host_state.py <card.json> <port> [--thread URL]
 """
 
 from __future__ import annotations
@@ -14,10 +14,20 @@ import sys
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    thread = ""
+    if "--thread" in args:
+        i = args.index("--thread")
+        try:
+            thread = args[i + 1]
+        except IndexError:
+            print("--thread can mot gia tri (URL)", file=sys.stderr)
+            return 2
+        args = args[:i] + args[i + 2 :]
+    if len(args) != 2:
         print(__doc__)
         return 2
-    path, port = sys.argv[1], int(sys.argv[2])
+    path, port = args[0], int(args[1])
     card = {}
     if os.path.exists(path):
         try:
@@ -35,6 +45,8 @@ def main() -> int:
     card["tunnel_port"] = port
     card["state"] = "connected" if listening else "waiting"
     card["checked"] = datetime.datetime.now().isoformat(timespec="seconds")
+    if thread:
+        card["thread"] = thread
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(card, fh, indent=2, ensure_ascii=False)
     return 0

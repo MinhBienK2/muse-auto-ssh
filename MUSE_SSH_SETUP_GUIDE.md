@@ -43,7 +43,7 @@ flowchart LR
 | Container không ra ngoài thẳng được | `ssh: connect to host … Operation not permitted` | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` **cổng 3130** (không cần user:pass). Script `bridge/ts-socat-proxy.sh` bọc `socat` cho việc này. |
 | `Permission denied (publickey,password)` khi SSH ra ngoài | Đường mạng đã thông, chỉ thiếu key | `ssh` phải có `-i /home/hatch/.ssh/id_ed25519` — key của container **không** nằm ở `/root/.ssh/` (thư mục đó bị xoá khi refresh). |
 | `sshd` của container treo | `banner exchange timeout` từ `127.0.0.1:2222` | `pgrep sshd` **không đủ** — phải kiểm tra sshd thật sự trả lời banner. Watchdog v3 làm đúng việc này. |
-| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá mỗi lần refresh | Để key ở `/home/hatch/.ssh/authorized_keys` và làm `/root/.ssh/authorized_keys` là **symlink** trỏ tới. |
+| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá mỗi lần refresh | Để key gốc ở `/home/hatch/.ssh/authorized_keys` và **copy** sang `/root/.ssh/authorized_keys` (chmod 600). Không dùng symlink — `/home/hatch` group-writable → `sshd` `StrictModes` từ chối key. |
 
 ## 3. Tự phục hồi (thiết kế hiện hành)
 

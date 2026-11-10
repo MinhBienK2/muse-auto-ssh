@@ -247,7 +247,7 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Muse không đăng nhập được vào máy mình | `sshd` trong container đọc `/root/.ssh/authorized_keys`, không phải `~/.ssh/authorized_keys` của user `hatch` | Ghi key vào **cả hai** file (prompt mới đã làm sẵn) |
 | Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |
 | `Permission denied (publickey,password)` khi SSH ra ngoài | `ssh` không tìm thấy private key của container | Thêm `-i /home/hatch/.ssh/id_ed25519` (key không nằm ở `/root/.ssh/`) |
-| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key phải nằm ở `/home/hatch/.ssh/authorized_keys` và `/root/.ssh/authorized_keys` là symlink trỏ tới |
+| Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key gốc nằm ở `/home/hatch/.ssh/authorized_keys` và được **copy** sang `/root/.ssh/authorized_keys` (chmod 600). **Không symlink** — `/home/hatch` group-writable → `sshd` `StrictModes` từ chối key → `Permission denied` |
 | Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 | `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
 

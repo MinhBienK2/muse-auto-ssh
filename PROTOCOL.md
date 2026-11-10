@@ -212,7 +212,7 @@ stateDiagram-v2
 |---|---|
 | Dán prompt lần đầu, tạo chat, bấm "Allow" | **Chat** (chỉ khi chưa vào được máy Muse) |
 | Cài bus, watchdog, systemd, loop, config, key | **SSH** |
-| Restart tunnel, restore symlink sau refresh | **SSH** (nếu vào được) hoặc **container tự làm** (watchdog/loop) |
+| Restart tunnel, copy lại key sau refresh | **SSH** (nếu vào được) hoặc **container tự làm** (watchdog/loop) |
 | Gửi/nhận tin nhắn giữa 2 agent | **Bus** (`bridge.py`) |
 | Đánh thức container bị đóng băng/suspend | **Chat** — nhưng **hiếm, có giới hạn tần suất, phải bật tay** |
 

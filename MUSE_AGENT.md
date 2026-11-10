@@ -35,8 +35,11 @@ và bạn cũng đã yêu cầu người dùng *nói từng bước bằng lời
 - `HOME` của bạn là `/root`; deployment thật có thể nằm ở `/home/hatch/workspace/…`.
   Luôn **tự dò** path, không hard-code.
 - **`sshd` của bạn chạy user `root`** → nó đọc `/root/.ssh/authorized_keys`. Nhưng `/root` bị xoá khi
-  refresh: hãy để key ở `/home/hatch/.ssh/authorized_keys` và làm `/root/.ssh/authorized_keys` là
-  **symlink** trỏ tới.
+  refresh: hãy để key ở `/home/hatch/.ssh/authorized_keys` (vùng bền vững) và **copy** nó sang
+  `/root/.ssh/authorized_keys` (file thật, `chmod 600`).
+  **KHÔNG dùng symlink**: `/home/hatch` là group-writable (`drwxrws---`) → `sshd` bật `StrictModes`
+  sẽ **từ chối** key và đăng nhập hỏng (`Permission denied (publickey,password)`) dù đường mạng
+  vẫn thông. Đã kiểm chứng trên container thật.
 
 ---
 
@@ -46,17 +49,19 @@ Container của bạn có **hai vùng**:
 
 | Vùng | Tính chất | Đặt gì ở đây |
 |---|---|---|
-| `/root` | **overlay tạm — MẤT HOÀN TOÀN khi container refresh/recycle** | chỉ symlink |
+| `/root` | **overlay tạm — MẤT HOÀN TOÀN khi container refresh/recycle** | bản copy (file thật) |
 | `/home/hatch` | **btrfs — BỀN VỮNG** | key, script, config, bus, hook |
 
 Vì vậy:
-- key của bạn: `/home/hatch/.ssh/id_ed25519` → `ln -sfn /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys`
-  (sshd chạy user root nên nó đọc `/root/.ssh/authorized_keys`)
+- key của bạn: `/home/hatch/.ssh/id_ed25519`; `authorized_keys` giữ bản gốc ở
+  `/home/hatch/.ssh/authorized_keys` và **copy** sang `/root/.ssh/authorized_keys` (chmod 600).
+  **KHÔNG symlink** — `StrictModes` sẽ từ chối vì `/home/hatch` group-writable (đã kiểm chứng).
 - bus + cấu hình: `/home/hatch/.muse-bridge` → `ln -sfn /home/hatch/.muse-bridge /root/.muse-bridge`
+  (symlink ở đây được: `sshd` không đọc file này)
 - script tunnel + watchdog + unit systemd: `/home/hatch/workspace/muse-platform-setup/…`
 
 Sau mỗi lần container refresh, chỉ cần phần ở `/home/hatch` là còn; phần `/root` sẽ được
-watchdog tự tạo lại (symlink) và máy ngoài sẽ tự đẩy lại bus.
+watchdog tự tạo lại (copy key từ seed bền vững) và máy ngoài sẽ tự đẩy lại bus.
 
 ## 3. Lần chạy đầu tiên (prompt dán một lần)
 

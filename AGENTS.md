@@ -12,6 +12,7 @@
 | Chạy phía **container Muse** (bus, watchdog, tự phục hồi) | [`MUSE_AGENT.md`](MUSE_AGENT.md) |
 | Sửa **prompt dán cho Muse** | [`templates/MUSE_PROMPT.template.md`](templates/MUSE_PROMPT.template.md) → render bằng `python3 scripts/render_prompt.py` |
 | **Kết nối 1 máy Muse MỚI bằng 1 lần dán** (prompt đầy đủ thông số) | [`templates/MUSE_ONESHOT.template.md`](templates/MUSE_ONESHOT.template.md) + skill [`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md) → render bằng `bash scripts/bridge.sh oneshot --host <id>` |
+| **Agent tự setup 2 chiều** (hỏi → sinh `setup_prompt.md` → chờ paste status block → hoàn tất) | skill [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) — gọi bằng `/setup-ssh-muse` |
 | Đọc **tiêu chuẩn code** (khi review hoặc khi phải khớp style) | [`CODING_STANDARDS.md`](CODING_STANDARDS.md) |
 | Cài đặt lần đầu / người dùng mới | [`README.md`](README.md) |
 

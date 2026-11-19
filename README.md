@@ -114,6 +114,34 @@ tự kiểm tra → báo status block. Không cần trả lời câu hỏi nào 
 > `MUSE_PROMPT.md` **không chứa mã nguồn** — chỉ có 4 bước ngắn; toàn bộ mã được đẩy qua kênh SSH
 > đã xác thực sau khi kênh thông. Chi tiết: `PROTOCOL.md` mục 8.1.
 
+### Bước 2'' — Skill `/setup-ssh-muse`: agent tự setup **2 chiều** (hỏi → dán → chờ → xong)
+
+Nếu bạn dùng Claude Code, không cần chạy lệnh tay ở trên. Gõ:
+
+```
+/setup-ssh-muse
+```
+
+Agent sẽ:
+
+1. **Hỏi bạn vài câu** (click được): tên SSH alias (mặc định `muse-001`, nếu đã có thì kê tiếp
+   `muse-002`…), cổng forward, profile Chrome.
+2. **Đăng ký host** (`arm` + `add-host`) → `ssh <alias>` là vào được ngay sau khi xong.
+3. **Sinh `setup_prompt.md`** ở gốc repo (bản copy của prompt one-shot, đã điền thông số máy
+   bạn) — file này **gitignore**, đừng commit.
+4. **DỪNG** và bảo bạn: copy file đó → dán vào chat **mới** của máy Muse.
+5. Muse làm xong sẽ báo **status block** (7 dòng `MUSE_HOST`, `MUSE_KEY`, `MUSE_PUBKEY`,
+   `MUSE_TUNNEL_PORT`, `MUSE_TUNNEL`, `MUSE_PERSISTENCE`, `MUSE_PROBE`) → bạn **paste nguyên
+   block** vào lại đây.
+6. Agent đọc block đó: authorize key của container, đẩy bundle, chờ `PEER_STATE=OK`, rồi
+   xác nhận bằng `ssh -o BatchMode=yes <alias> 'echo SSH_OK'` → **xong**, bạn `ssh <alias>`.
+
+Session bị ngắt giữa chừng thì gọi lại `/setup-ssh-muse --resume <alias>` — trạng thái nằm ở
+`.muse-hosts/<alias>/setup_state.json`.
+
+Skill: [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) ·
+test: `tests/setup_command_test.sh`.
+
 ### Bước 3 — kiểm tra
 
 ```bash
@@ -209,7 +237,8 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
 │   └── MUSE_ONESHOT.template.md # ⭐ template của prompt "một lần" (đầy đủ thông số, 7 bước)
 ├── .claude/skills/
-│   └── muse-oneshot/SKILL.md    # ⭐ skill: kết nối máy Muse mới bằng 1 lần dán prompt
+│   ├── muse-oneshot/SKILL.md    # ⭐ skill: kết nối máy Muse mới bằng 1 lần dán prompt
+│   └── setup-ssh-muse/SKILL.md  # ⭐ skill /setup-ssh-muse: hỏi → sinh setup_prompt.md → chờ paste → xong
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
@@ -223,6 +252,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
 │   ├── host_card_test.sh        # card host: cập nhật không mất trường cũ
 │   ├── oneshot_prompt_test.sh   # prompt "một lần": render + bash -n từng khối + proxy helper
+│   ├── setup_command_test.sh    # skill /setup-ssh-muse: 7 chặng + status block 7 dòng + gitignore
 │   ├── muse_web_profile_test.sh # driver web clone đúng Chrome profile (multi-account)
 │   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
 │   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
@@ -279,6 +309,11 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh selftest` | Chạy toàn bộ kiểm tra (bus, watchdog, bundle prompt, shellcheck, ruff) — không cần mạng |
 
 Mọi lệnh bus nhận `--host <id>` (bỏ trống → host mặc định).
+
+Ngoài các lệnh trên, Claude Code có sẵn 2 skill trong repo:
+`.claude/skills/muse-oneshot/SKILL.md` (dán 1 lần là xong) và
+`.claude/skills/setup-ssh-muse/SKILL.md` (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` →
+chờ bạn paste status block → hoàn tất, xem Bước 2'').
 
 Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào thẳng container Muse.
 

@@ -32,7 +32,7 @@ DOCS=(
   "AGENTS.md"
   "README.md"
   "PROTOCOL.md"
-  "MUSE_SSH_SETUP_GUIDE.md"
+  "templates/MUSE_ONESHOT.template.md"
 )
 
 echo "== 1. tai lieu khong con 'nen tao symlink' cho authorized_keys"

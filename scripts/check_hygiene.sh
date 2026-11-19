@@ -25,7 +25,6 @@ ok()   { echo "OK: $1"; }
 # --- 1) gia tri rieng cua may ----------------------------------------------
 # Chi xet file text (bo qua binary), va bo qua:
 #   100.64.0.0/10 - dai CGNAT cua Tailscale; 127.0.0.0/8 - loopback.
-# `legacy/` CUNG duoc quet - no cung da duoc push len git.
 IP_RE='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
 ip_hits="$(git grep -nE "$IP_RE" -- ':!*.md' ':!*.pyc' 2>/dev/null \
   | grep -vE '\b(127|0|255)\.' \
@@ -65,7 +64,7 @@ fi
 # --- 2) stub / TODO -------------------------------------------------------
 # Chi danh nguon (khong phai comment/tai lieu). Bo qua chinh file nay - no chua
 # cac tu khoa tren trong regex cua no.
-stub_hits="$(git grep -nE '\b(TODO|FIXME|XXX)\b|not implemented|NotImplementedError' -- ':!legacy' ':!*.md' ':!scripts/check_hygiene.sh' 2>/dev/null \
+stub_hits="$(git grep -nE '\b(TODO|FIXME|XXX)\b|not implemented|NotImplementedError' -- ':!*.md' ':!scripts/check_hygiene.sh' 2>/dev/null \
   | grep -vE '^\S+:[0-9]+:\s*#' || true)"
 if [ -n "$stub_hits" ]; then
   fail "con TODO/stub trong code:"

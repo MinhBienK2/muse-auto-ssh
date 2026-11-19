@@ -12,8 +12,8 @@
 
 ## 1. Một nguồn sự thật
 
-**Quy tắc.** Mỗi khái niệm chỉ có **một** nơi định nghĩa. Hai bản của cùng một file là lỗi, kể cả khi
-bạn đang ở trong `legacy/`.
+**Quy tắc.** Mỗi khái niệm chỉ có **một** nơi định nghĩa. Hai bản của cùng một file là lỗi — kể cả khi
+bản cũ nằm ở thư mục khác.
 
 | Khái niệm | Nguồn duy nhất |
 |---|---|
@@ -21,22 +21,20 @@ bạn đang ở trong `legacy/`.
 | Lệnh CLI phía máy ngoài | `scripts/bridge.sh` → `bridge/local_side.sh` |
 | Lệnh CLI phía Muse | `bridge/muse_side.sh` |
 | Driver trình duyệt | `bridge/muse_web.py` |
-| Proxy helper | `bridge/ts-socat-proxy.sh` |
+| Proxy helper (socat) | `bridge/ts-socat-proxy.sh` |
+| Proxy helper (python, dùng khi container thiếu socat) | `bridge/ts-connect-proxy.py` |
 | Script loop tunnel | `bridge/reverse-tunnel.sh` |
 | Prompt dán cho Muse | `templates/MUSE_PROMPT.template.md` (bản short) · `templates/MUSE_ONESHOT.template.md` (bản một-lần) |
 
-**Cách kiểm tra.** `git ls-files | xargs grep -l <tên file>` — nếu tên file xuất hiện ở nhiều nơi
-ngoài `legacy/`, đó là bản sao cần xoá hoặc thay bằng symlink.
-
-**Đã có sẵn:** `legacy/templates/ts-socat-proxy.sh` là symlink tới `bridge/ts-socat-proxy.sh` — đây là
-mẫu để copy.
+**Cách kiểm tra.** `git ls-files | xargs grep -l <tên file>` — nếu tên file xuất hiện ở nhiều nơi,
+đó là bản sao cần xoá hoặc thay bằng symlink.
 
 ## 2. Mọi thứ phải chạy được ở máy khác
 
 **Quy tắc.** Repo này được kéo về máy người khác. Không file nào được chứa giá trị riêng của một
 máy cụ thể: IP Tailscale, username, đường dẫn home, hostname, port cố định, email.
 
-**Cách kiểm tra.** `bash scripts/check_hygiene.sh` — quét **mọi** file tracked (kể cả `legacy/`), tìm IP
+**Cách kiểm tra.** `bash scripts/check_hygiene.sh` — quét **mọi** file tracked, tìm IP
 ngoài dải riêng (loopback / RFC1918 / dải CGNAT của Tailscale được miễn), email thật, và đường dẫn
 `/home/<tên-của-người-viết>`. Phải in `HYGIENE_CHECK: PASS`.
 

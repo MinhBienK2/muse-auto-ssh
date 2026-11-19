@@ -185,7 +185,6 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 ├── LOCAL_AGENT.md               # ⭐ quy trình cho Agent Ngoài
 ├── MUSE_AGENT.md                # ⭐ quy trình cho Agent Muse
 ├── README.md
-├── MUSE_SSH_SETUP_GUIDE.md      # phân tích mạng ngầm (tài liệu cũ — xem legacy/README.md)
 ├── MUSE_PROMPT.md               # prompt dán 1 lần — SINH TỰ ĐỘNG, gitignored (chứa key/IP máy bạn)
 ├── bridge/
 │   ├── bridge.py                # ⭐ bus core — mã nguồn chung của cả hai bên
@@ -223,8 +222,29 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
 │   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
 ├── .githooks/pre-commit         # hook: chạy selftest trước mỗi commit
-└── legacy/                      # script của thiết kế cũ (xem legacy/README.md)
+└── .github/workflows/ci.yml     # CI: chạy selftest khi push
 ```
+
+### 4.1 Script của thiết kế cũ (v1) — đã xoá
+
+Thiết kế đầu tiên (`muse-auto-ssh v1`) có bộ script riêng; nay đã bị thay toàn bộ bằng `bridge/` và
+đã xoá khỏi repo. Vẫn đọc lại được từ lịch sử git: `git log --diff-filter=D -- legacy/README.md`.
+Bảng đối chiếu v1 → v2:
+
+| Script cũ (v1) | Được thay bằng |
+|---|---|
+| `muse_bootstrap.sh` | `bridge/muse_side.sh setup` (tự dò `BASE`, tự cài socat/sshd, tự sinh key) |
+| `muse_start_tunnel.sh` | `bridge/muse_side.sh setup` (adopt-first, không kill tunnel cũ) |
+| `muse_remote_sync.sh` | `bridge/muse_side.sh setup` + `bridge/muse_side.sh worker` |
+| `muse_harden_persistence.sh` | watchdog Hatch trong `bridge/muse_side.sh` (`ensure_persistence`) |
+| `local_setup.sh` | `bash scripts/bridge.sh arm` |
+| `local_finalize_persistence.sh` | `bash scripts/bridge.sh arm` (đã push bundle + cài TOFU) |
+| `outer_bridge.sh` | `bash scripts/bridge.sh status` / `inbox` |
+| `reverse-tunnel-g3.sh` | script loop do `muse_side.sh` sinh ra (`$BASE/tunnel/reverse-tunnel.sh`) |
+| `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh` |
+
+Mailbox kiểu cũ (`~/muse-bridge/MUSE_STATUS.md`, `OUTER_TASKS.md`) **không còn dùng** — trao đổi
+giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCOL.md` mục 5–7.
 
 ---
 

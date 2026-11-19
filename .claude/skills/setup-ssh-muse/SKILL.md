@@ -1,7 +1,7 @@
 ---
 name: setup-ssh-muse
 description: Kết nối 1 máy Muse MỚI — hỏi vài câu, sinh setup_prompt.md để dán sang máy Muse, chờ paste output của Muse rồi hoàn tất (sau đó `ssh <alias>` là vào được). Dùng khi người dùng gõ /setup-ssh-muse, "setup ssh muse", "kết nối máy Muse mới", "nối máy muse", "onboard máy Muse mới", hoặc muốn agent tự setup 2 chiều với 1 container Muse mới.
-argument-hint: "[ten-ssh] [--resume]"
+argument-hint: "[ten-ssh] [--resume <alias>]"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
 
@@ -57,20 +57,33 @@ Hỏi bằng `AskUserQuestion` (user trả lời nhanh bằng click), **không**
 Alias được dùng **làm host id** trong repo (`.muse-hosts/<alias>/`, spool, `~/.ssh/config`)
 → sau khi xong user gõ đúng `ssh <alias>` là vào container.
 
-Ghi lại các lựa chọn vào file trạng thái (xem Chặng A/E).
+**Ghi lựa chọn vào file trạng thái NGAY BÂY GIỜ** (dùng tool `Write`, không dùng `cat >` trong
+bash) — để session bị ngắt ở chặng nào cũng resume được:
+
+```json
+// .muse-hosts/<alias>/setup_state.json
+{"phase": "asked", "alias": "<alias>", "port": "<port>", "profile": "<profile>",
+ "prompt_path": "", "created": "<thoi diem>", "muse_output": ""}
+```
+
+Mỗi lần chuyển chặng → cập nhật lại `phase`: `asked` → `armed` → `prompt_ready` →
+`waiting_muse` → `done`.
 
 ## Chặng C — Đăng ký host + chuẩn bị máy
 
 ```bash
 bash scripts/bridge.sh arm                                        # sshd + key + bundle (deb cache)
-bash scripts/bridge.sh add-host --host <alias> [--port <port>] --label "<alias>"
+bash scripts/bridge.sh add-host --host <alias> [--port <port>] --label "<alias>" \
+     [--profile-dir "<profile>"]
 ```
 
+- `--profile-dir` chỉ cần khi profile ≠ `Default` (account Muse khác).
 - Nếu `doctor` báo **thiếu TOFU hook** hoặc **thiếu keepalive** → in đúng 2 lệnh này để user
   chạy (`sudo bash scripts/install_tofu_hook.sh`, `sudo bash scripts/install_sshd_keepalive.sh`)
   rồi **hỏi user bằng AskUserQuestion** "đã chạy xong chưa?" — không tự chạy sudo.
   Thiếu TOFU thì máy Muse **mới** không được sshd tự pin key → dán 1 lần sẽ hỏng ở Bước 3.
 - `add-host` tự viết khối `Host <alias>` vào `~/.ssh/config` → user `ssh <alias>` là vào.
+- Cập nhật `setup_state.json`: `phase=armed`.
 
 ## Chặng D — Sinh `setup_prompt.md`
 
@@ -84,12 +97,11 @@ cp .muse-hosts/<alias>/MUSE_ONESHOT.md setup_prompt.md
 - Kiểm tra nhanh: `wc -c setup_prompt.md` (khoảng 17 KB) và
   `grep -c "{{" setup_prompt.md` phải bằng 0 (không còn placeholder).
 - In ra: đường dẫn tuyệt đối + kích thước.
+- Cập nhật `setup_state.json`: `phase=prompt_ready`, `prompt_path=<đường dẫn tuyệt đối>`.
 
 ## Chặng E — Bàn giao và **DỪNG**
 
-Ghi trạng thái phiên vào `.muse-hosts/<alias>/setup_state.json` (JSON, gồm: `phase`,
-`alias`, `port`, `profile`, `prompt_path`, `created`, `muse_output`) để lệnh này có thể
-`--resume` sau nếu session bị ngắt.
+Cập nhật `setup_state.json`: `phase=waiting_muse` (giữ `muse_output` rỗng).
 
 Sau đó **kết thúc lượt** bằng đúng 3 điều:
 
@@ -113,11 +125,16 @@ thường). Lưu nguyên block vào `setup_state.json` (`muse_output`).
    ```bash
    bash scripts/bridge.sh authorize --host <alias> --key "<MUSE_PUBKEY>"
    ```
-2. `MUSE_TUNNEL_PORT` → nếu **khác** cổng đã đăng ký: sửa card + alias:
+2. `MUSE_TUNNEL_PORT` → nếu **khác** cổng đã đăng ký: đổi port cho cả 3 chỗ (config, card,
+   ssh alias) bằng lệnh chuyên dụng:
    ```bash
-   bash scripts/bridge.sh add-host --host <alias> --port <MUSE_TUNNEL_PORT> --label "<alias>"
+   bash scripts/bridge.sh set-port --host <alias> --port <MUSE_TUNNEL_PORT>
    ```
    rồi báo user (cổng đã đổi). Nếu giống → không làm gì.
+
+   ⛔ **ĐỪNG chạy lại `add-host` để đổi port** — `add-host` ghi lại card từ đầu nên **mất field
+   `thread`** (auto-repair dùng field này để đánh thức container) và **reset `web_profile_dir`
+   về `Default`** (đổi account Chrome). `set-port` chỉ sửa đúng 3 chỗ, giữ nguyên phần còn lại.
 3. `MUSE_TUNNEL=UP` / `MUSE_PROBE=OK` → đã có kênh. Vẫn chạy tiếp bước sau (idempotent).
 4. Đẩy bundle + setup phía container (adopt-first, **không** kill tunnel):
    ```bash
@@ -155,6 +172,7 @@ Nếu user gọi `/setup-ssh-muse --resume <alias>`: đọc `.muse-hosts/<alias>
 ## Luật cứng
 
 - **Không hard-code** IP / user / pubkey / cổng / path của máy này — để script tự dò.
+- **Đổi port = `bridge.sh set-port`**, không phải chạy lại `add-host` (xem Chặng F).
 - **Sửa prompt = sửa template** `templates/MUSE_ONESHOT.template.md` rồi render lại; file đã
   render (`MUSE_PROMPT.md`, `MUSE_ONESHOT.md`, `setup_prompt.md`) là artifact, gitignore, không
   commit.

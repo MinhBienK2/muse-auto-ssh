@@ -50,11 +50,13 @@ for c in "Chặng A" "Chặng B" "Chặng C" "Chặng D" "Chặng E" "Chặng F"
 done
 
 echo "== 3. dung lenh repo (khong tu che lenh)"
-for cmd in "bridge.sh arm" "bridge.sh add-host" "bridge.sh oneshot" "bridge.sh authorize" \
-           "bridge.sh provision" "bridge.sh status" "bridge.sh doctor" "bridge.sh selftest" \
-           "bridge.sh prompt" "bridge.sh onboard"; do
+for cmd in "bridge.sh arm" "bridge.sh add-host" "bridge.sh set-port" "bridge.sh oneshot" \
+           "bridge.sh authorize" "bridge.sh provision" "bridge.sh status" "bridge.sh doctor" \
+           "bridge.sh selftest" "bridge.sh prompt" "bridge.sh onboard"; do
   ok "co lenh '$cmd'" has "$CMD" "$cmd"
 done
+ok "doi port bang set-port, khong chay lai add-host" \
+  has_re "$CMD" 'set-port.*--port'
 
 echo "== 4. setup_prompt.md: sinh ra + gitignore"
 ok "command tao setup_prompt.md"   has "$CMD" "setup_prompt.md"
@@ -73,6 +75,10 @@ ok "command co quy tac DUNG"       has_re "$CMD" 'DỪNG|DUNG\.'
 ok "command noi ro phai paste"     has_re "$CMD" 'paste'
 ok "command co nhan --resume"      has "$CMD" "--resume"
 ok "command luu trang thai phien"  has "$CMD" "setup_state.json"
+ok "state co phase de resume"      has_re "$CMD" 'phase'
+ok "state ghi ngay khi hoi xong"   has_re "$CMD" 'asked'
+ok "state co phase waiting_muse"   has "$CMD" "waiting_muse"
+ok "truong hop Chrome profile"     has "$CMD" "--profile-dir"
 
 echo "== 7. xac nhan cuoi bang ssh <alias>"
 ok "command co kiem tra SSH_OK"    has "$CMD" "SSH_OK"

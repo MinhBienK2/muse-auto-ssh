@@ -11,6 +11,7 @@
 | Chạy phía **máy của người dùng** (đọc/gửi tin, đăng ký Muse host) | [`LOCAL_AGENT.md`](LOCAL_AGENT.md) |
 | Chạy phía **container Muse** (bus, watchdog, tự phục hồi) | [`MUSE_AGENT.md`](MUSE_AGENT.md) |
 | Sửa **prompt dán cho Muse** | [`templates/MUSE_PROMPT.template.md`](templates/MUSE_PROMPT.template.md) → render bằng `python3 scripts/render_prompt.py` |
+| **Kết nối 1 máy Muse MỚI bằng 1 lần dán** (prompt đầy đủ thông số) | [`templates/MUSE_ONESHOT.template.md`](templates/MUSE_ONESHOT.template.md) + skill [`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md) → render bằng `bash scripts/bridge.sh oneshot --host <id>` |
 | Đọc **tiêu chuẩn code** (khi review hoặc khi phải khớp style) | [`CODING_STANDARDS.md`](CODING_STANDARDS.md) |
 | Cài đặt lần đầu / người dùng mới | [`README.md`](README.md) |
 
@@ -19,8 +20,9 @@
 1. **Một nguồn mã.** `bridge/bridge.py` là bus core dùng chung cho cả hai bên. Sửa nó thì phải
    `bash scripts/bridge.sh push --host <id>` để đồng bộ lên container — hai bên phải chạy **cùng
    phiên bản**, lệch version là mất tin.
-2. **Prompt là artifact sinh ra.** Không sửa `MUSE_PROMPT.md` bằng tay (nó còn bị `.gitignore` vì
-   chứa host/user/pubkey của máy bạn). Sửa `templates/MUSE_PROMPT.template.md` rồi render lại.
+2. **Prompt là artifact sinh ra.** Không sửa `MUSE_PROMPT.md` / `MUSE_ONESHOT.md` bằng tay (chúng còn
+   bị `.gitignore` vì chứa host/user/pubkey của máy bạn). Sửa **template**
+   (`templates/MUSE_PROMPT.template.md` hoặc `templates/MUSE_ONESHOT.template.md`) rồi render lại.
 3. **Thông tin kết nối không vào git.** IP Tailscale, username, public key, đường dẫn máy → nằm ở
    `.muse-hosts/` (đã gitignore) hoặc runtime config, **không** hard-code trong file tracked và
    **không** commit.
@@ -54,7 +56,10 @@ git config core.hooksPath .githooks
 - `sshd` trong container Muse chạy user `root` → nó đọc `/root/.ssh/authorized_keys`, **không phải**
   `~/.ssh/authorized_keys` của user `hatch`. Sửa cả hai.
 - Container không ra ngoài thẳng được → phải qua HTTP CONNECT proxy `hatch-egress-proxy` **cổng 3130**,
-  **không cần user:pass** (cổng 3128 thì cần token, đừng dùng).
+  **không cần user:pass** (cổng 3128 thì cần token, đừng dùng). Container mới có thể **thiếu `socat`**
+  (`apt` qua proxy hay treo) → `bridge/ts-socat-proxy.sh` tự fallback sang `bridge/ts-connect-proxy.py`
+  (python3, không cần gói ngoài). Bản gốc duy nhất của helper python ở `bridge/ts-connect-proxy.py`;
+  prompt "một lần" **inject** file đó (không copy-paste tay) → không bao giờ lệch phiên bản.
 - Key SSH của container nằm ở **`/home/hatch/.ssh/id_ed25519`**, không phải `/root/.ssh/` (thư mục đó
   bị xoá mỗi lần container refresh). Lệnh `ssh` **phải có `-i`** trỏ tới key đó.
 - Key của máy bạn phải nằm ở `/home/hatch/.ssh/authorized_keys` (vùng bền) và được **copy** sang

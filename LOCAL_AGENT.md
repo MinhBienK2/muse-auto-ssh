@@ -56,6 +56,22 @@ sudo bash scripts/install_sshd_keepalive.sh
 
 ## 3. Kết nối một máy Muse mới
 
+### 3.0. Máy Muse MỚI — dán **một lần** là xong (không đối thoại setup)
+
+Bản prompt 4 bước (3.2) cố tình ngắn nên vẫn phải nói chuyện vài lượt. Với **máy mới**, dùng bản
+**một lần**: chứa sẵn mọi thông số + 7 bước bootstrap + hợp đồng "không hỏi lại, tự báo status
+block". Muse tự kéo bundle qua SSH nên không cần ai đẩy mã vào container.
+
+```bash
+bash scripts/bridge.sh add-host --host <id> --port <port>   # nếu chưa đăng ký
+bash scripts/bridge.sh oneshot --host <id>                  # render .muse-hosts/<id>/MUSE_ONESHOT.md
+bash scripts/bridge.sh oneshot --host <id> --send           # tự dán vào chat Muse qua driver web
+```
+
+Quy trình đầy đủ (arm → add-host → oneshot → chờ tunnel → push → verify) nằm trong skill
+[`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md) — đọc file đó rồi
+làm theo, đừng tự chế lệnh.
+
 ### 3.1. Zero-touch (không cần người dùng copy/paste)
 
 ```bash

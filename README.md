@@ -87,6 +87,28 @@ bash scripts/bridge.sh prompt --host muse2    # sinh .muse-hosts/muse2/MUSE_PROM
 Dán nội dung đó vào chat của Agent Muse, rồi trả lời các câu hỏi của nó **bằng lời, từng bước một**.
 Khi tunnel đã lên: `bash scripts/bridge.sh push --host muse2` để đẩy bus + watchdog vào container.
 
+### Bước 2' — Máy Muse MỚI: dán **một lần** là xong (không đối thoại setup)
+
+Bản prompt 4 bước ở trên cố tình **ngắn** (bộ lọc của nền tảng chặn khối script lớn) nên vẫn phải
+nói chuyện vài lượt. Với **máy Muse mới**, repo có thêm bản prompt **đầy đủ thông số**: chứa sẵn
+Tailscale IP, user, port, public key, đường dẫn bundle, proxy, key path bền vững + **7 bước**
+bootstrap + hợp đồng **"không hỏi lại, tự đi tiếp, tự báo status block"**.
+
+```bash
+bash scripts/bridge.sh add-host --host muse4 --port 2225   # (nếu chưa đăng ký host)
+bash scripts/bridge.sh oneshot --host muse4                # render .muse-hosts/muse4/MUSE_ONESHOT.md
+bash scripts/bridge.sh oneshot --host muse4 --print        # in ra để copy
+bash scripts/bridge.sh oneshot --host muse4 --clip         # copy vào clipboard
+bash scripts/bridge.sh oneshot --host muse4 --send         # tự dán vào chat Muse qua driver web
+```
+
+Dán nguyên file vào chat **mới** của Agent Muse → Muse tự: cài key → bảo đảm `sshd` → tạo proxy →
+**tự kéo bundle** từ máy bạn qua SSH → dựng tunnel + systemd `Restart=always` + watchdog 15s →
+tự kiểm tra → báo status block. Không cần trả lời câu hỏi nào của nó.
+
+> Agent làm việc theo skill [`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md)
+> (đọc file đó để có đủ quy trình: arm → add-host → oneshot → chờ tunnel → push → verify).
+
 > **Vì sao prompt ngắn?** Bộ lọc an toàn của nền tảng Muse đã từ chối chạy "khối script lớn" dán vào
 > chat (05/11, 06/11) và Agent Muse yêu cầu người dùng nói từng bước bằng lời của họ. Vì vậy
 > `MUSE_PROMPT.md` **không chứa mã nguồn** — chỉ có 4 bước ngắn; toàn bộ mã được đẩy qua kênh SSH
@@ -172,6 +194,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── muse_web.py              # ⭐ điều khiển Chrome (CDP thuần Python) để gửi prompt + bấm Allow
 │   ├── reverse-tunnel.sh        # loop tự reconnect tunnel (mỗi port một bản + config riêng)
 │   ├── ts-socat-proxy.sh        # nối qua HTTP CONNECT proxy của Hatch (có đường cứu)
+│   ├── ts-connect-proxy.py      # cùng việc, viết bằng python (dùng khi container thiếu socat)
 │   ├── inject_watchdog.py       # watchdog v6 (sshd + key + unit + HATCH_HOOK_RESULT)
 │   ├── authorize_peer.sh        # TOFU cho sshd (tự pin key Muse mới)
 │   └── muse-bridge-daemon.service  # unit systemd user cho daemon nền
@@ -184,7 +207,10 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── check_prompt_sync.sh     # kiểm tra template + MUSE_PROMPT.md còn đồng bộ
 │   └── check_hygiene.sh         # quét IP/email/path riêng của máy + TODO/stub
 ├── templates/
-│   └── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
+│   ├── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
+│   └── MUSE_ONESHOT.template.md # ⭐ template của prompt "một lần" (đầy đủ thông số, 7 bước)
+├── .claude/skills/
+│   └── muse-oneshot/SKILL.md    # ⭐ skill: kết nối máy Muse mới bằng 1 lần dán prompt
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
@@ -192,6 +218,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse + config per-port
 │   ├── tunnel_loop_test.sh      # vòng lặp tunnel + proxy helper (stub, không cần container)
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
+│   ├── oneshot_prompt_test.sh   # prompt "một lần": render + bash -n từng khối + proxy helper
 │   ├── muse_web_profile_test.sh # driver web clone đúng Chrome profile (multi-account)
 │   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
 │   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
@@ -217,6 +244,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 | `bash scripts/bridge.sh sync` | Gửi lại tin đang chờ (`pending/`) |
 | `bash scripts/bridge.sh pull` | Kéo tin từ peer (khi chỉ còn 1 chiều) |
 | `bash scripts/bridge.sh prompt` | Render prompt cho Muse |
+| `bash scripts/bridge.sh oneshot --host <id>` | Render prompt **một-lần** (đầy đủ thông số) cho máy Muse mới — `--print` / `--clip` / `--send` |
 | `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
 | `bash scripts/bridge.sh provision --host <id>` | Đẩy bus + watchdog + chạy setup phía Muse |
 | `bash scripts/bridge.sh doctor` | Chẩn đoán: sshd, TOFU hook, từng host |

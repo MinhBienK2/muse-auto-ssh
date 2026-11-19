@@ -170,7 +170,7 @@ pull_updates() {
   if ! timeout 90 ssh -n -o "ProxyCommand=${PROXY_PATH} %h %p" -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 \
         -i "$KEY_PATH" "${LOCAL_USER}@${LOCAL_IP}" \
-        'cd ~/.muse-bridge/bundle && tar cf - VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh deb 2>/dev/null' \
+        'cd ~/.muse-bridge/bundle && tar cf - VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh ts-connect-proxy.py deb 2>/dev/null' \
         2>/dev/null | tar xf - -C "$tmp" 2>/dev/null; then
     rm -rf "$tmp"; return 0
   fi
@@ -182,7 +182,7 @@ pull_updates() {
   mkdir -p "$bundle"
   local f
   local hook="/home/hatch/hooks/scripts/muse-platform-boot.sh"
-  for f in VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh; do
+  for f in VERSION bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh ts-connect-proxy.py; do
     [ -f "$tmp/$f" ] || continue
     mv -f "$tmp/$f" "$bundle/$f"; chmod 700 "$bundle/$f" 2>/dev/null || true
   done
@@ -212,6 +212,14 @@ pull_updates() {
       && mv -f "$SCRIPT_DIR/ts-socat-proxy.sh.new" "$SCRIPT_DIR/ts-socat-proxy.sh" 2>/dev/null \
       && chmod 700 "$SCRIPT_DIR/ts-socat-proxy.sh" 2>/dev/null \
       && log "da tu cap nhat proxy helper tu bundle"
+  fi
+  # Helper python di kem (duong cuu khi container thieu socat).
+  if [ -f "$bundle/ts-connect-proxy.py" ] && [ -d "$SCRIPT_DIR" ] \
+     && ! cmp -s "$bundle/ts-connect-proxy.py" "$SCRIPT_DIR/ts-connect-proxy.py"; then
+    cp -f "$bundle/ts-connect-proxy.py" "$SCRIPT_DIR/ts-connect-proxy.py.new" 2>/dev/null \
+      && mv -f "$SCRIPT_DIR/ts-connect-proxy.py.new" "$SCRIPT_DIR/ts-connect-proxy.py" 2>/dev/null \
+      && chmod 700 "$SCRIPT_DIR/ts-connect-proxy.py" 2>/dev/null \
+      && log "da tu cap nhat proxy helper python tu bundle"
   fi
   if [ -f "$hook" ] && [ -f "$base/inject_watchdog.py" ]; then
     python3 "$base/inject_watchdog.py" "$hook" "$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh" \

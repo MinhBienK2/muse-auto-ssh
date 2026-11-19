@@ -65,7 +65,10 @@ detect_loop() {
 ensure_pkgs() {
   if ! command -v socat >/dev/null 2>&1; then
     say "cai socat..."
-    (apt-get update -qq && apt-get install -y -qq socat) >/dev/null 2>&1 || true
+    export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
+    export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
+    (timeout 45 apt-get update -qq && timeout 60 apt-get install -y -qq --no-install-recommends socat) \
+      >/dev/null 2>&1 || true
   fi
   if ! command -v sshd >/dev/null 2>&1 && [ ! -x /usr/sbin/sshd ]; then
     say "cai openssh-server..."
@@ -78,7 +81,8 @@ ensure_pkgs() {
     else
       export http_proxy="http://hatch-egress-proxy:3130" https_proxy="http://hatch-egress-proxy:3130"
       export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
-      (apt-get update -qq && apt-get install -y -qq --no-install-recommends openssh-server) >/dev/null 2>&1 || true
+      (timeout 45 apt-get update -qq && timeout 90 apt-get install -y -qq --no-install-recommends openssh-server) \
+        >/dev/null 2>&1 || true
     fi
   fi
 }
@@ -140,6 +144,21 @@ ensure_proxy() {
   else
     mv -f "$tmp" "$PROXY"
     say "proxy script: $PROXY (da cap nhat)"
+  fi
+  # Helper python: duong cuu khi container THIEU socat (apt qua proxy hay treo).
+  # No phai ton tai cung thu muc voi ts-socat-proxy.sh de fallback tim thay.
+  local py_src="$SCRIPT_DIR/ts-connect-proxy.py"
+  local py_dst
+  py_dst="$(dirname "$PROXY")/ts-connect-proxy.py"
+  if [ -f "$py_src" ]; then
+    local py_tmp="$py_dst.tmp.$$"
+    install -m 0755 "$py_src" "$py_tmp"
+    if [ -f "$py_dst" ] && cmp -s "$py_tmp" "$py_dst"; then
+      rm -f "$py_tmp"
+    else
+      mv -f "$py_tmp" "$py_dst"
+      say "proxy helper python: $py_dst (da cap nhat)"
+    fi
   fi
 }
 

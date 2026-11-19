@@ -35,7 +35,7 @@ vững. Nên hãy làm theo cách này để key không mất:
 key đó và đăng nhập hỏng (`Permission denied (publickey,password)`) dù đường mạng vẫn thông.
 
 ```bash
-mkdir -p /home/hatch/.ssh /root/.ssh && chmod 700 /home/hatch/.ssh /root/.ssh && echo '{{LOCAL_PUBKEY}}' >> /home/hatch/.ssh/authorized_keys && chmod 600 /home/hatch/.ssh/authorized_keys && cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo KEY_OK
+mkdir -p /home/hatch/.ssh /root/.ssh && chmod 700 /home/hatch/.ssh /root/.ssh && (grep -qsF '{{LOCAL_PUBKEY}}' /home/hatch/.ssh/authorized_keys || echo '{{LOCAL_PUBKEY}}' >> /home/hatch/.ssh/authorized_keys) && chmod 600 /home/hatch/.ssh/authorized_keys && cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo KEY_OK
 ```
 
 Báo tôi khi xong (dán nguyên văn dòng lỗi nếu có).

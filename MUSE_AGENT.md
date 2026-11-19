@@ -65,7 +65,20 @@ watchdog tự tạo lại (copy key từ seed bền vững) và máy ngoài sẽ
 
 ## 3. Lần chạy đầu tiên (prompt dán một lần)
 
-Prompt do máy ngoài sinh (`bridge.sh prompt --host <id>`), gồm 4 bước:
+Có **hai bản prompt**, cùng do máy ngoài sinh ra:
+
+| Bản | Sinh bằng | Khi nào |
+|---|---|---|
+| **short** (4 bước) | `bridge.sh prompt --host <id>` | bạn đã chạy, cần đối thoại tiếp |
+| **oneshot** (7 bước, đầy đủ thông số) | `bridge.sh oneshot --host <id>` | **máy Muse mới** — dán 1 lần là xong |
+
+Bản **oneshot** đã chứa sẵn mọi thông số (IP, user, port, key path, bundle path, proxy) và quy
+tắc **"không hỏi lại, lỗi thì tự dùng fallback rồi đi tiếp, cuối cùng báo status block"** — hãy
+làm đúng thứ tự các bước, tự kiểm tra bằng lệnh thật, rồi báo status block. Nó cũng tự kéo
+bundle (bus + watchdog + loop tunnel) từ máy ngoài qua kênh SSH đã xác thực nên **không cần ai
+đẩy mã vào container**.
+
+Bản short gồm 4 bước:
 
 1. Authorize public key của máy ngoài (ghi vào **cả** `/root/.ssh/authorized_keys` và
    `~/.ssh/authorized_keys`).

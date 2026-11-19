@@ -13,6 +13,9 @@
 #   2) (chi khi khong --strict) neu MUSE_PROMPT.md ton tai tren may nay, no
 #      phai dung bang ban render moi nhat (phat hien "sua template xong quen
 #      render lai").
+#
+# Hai bien prompt: "short" (4 buoc, MUSE_PROMPT.md) va "oneshot" (day du thong so,
+# MUSE_ONESHOT.md) - ca hai deu kiem tra o day.
 # ==============================================================================
 set -uo pipefail
 
@@ -82,6 +85,58 @@ if [ "$STRICT" = "0" ] && [ -f MUSE_PROMPT.md ]; then
     fi
   else
     echo "skip: khong detect duoc host/public key tren may nay - bo qua kiem tra MUSE_PROMPT.md"
+  fi
+fi
+
+# --- 3) bien ONESHOT: prompt "mot lan" cho may Muse moi ----------------------
+python3 scripts/render_prompt.py --variant oneshot \
+  --host 100.64.0.1 --user probe --pubkey "ssh-ed25519 AAAAprobe" \
+  --port 2222 --spool /tmp/probe --hostname probe --host-id probe \
+  --out "$TMP/MUSE_ONESHOT.md" >/dev/null || {
+  fail "render_prompt.py --variant oneshot loi"
+  exit 1
+}
+
+if grep -q '{{[A-Z0-9_]*}}' "$TMP/MUSE_ONESHOT.md"; then
+  fail "template oneshot con placeholder chua thay:"
+  grep -o '{{[A-Z0-9_]*}}' "$TMP/MUSE_ONESHOT.md" | sort -u | sed 's/^/    /' >&2
+else
+  ok "template oneshot render khong con placeholder"
+fi
+
+# Gioi han dai hon ban short: ban oneshot nhieu lenh bootstrap hon, nhung van
+# khong nhung source code bus (bo loc an toan chan "khong script lon").
+oneshot_size=$(wc -c < "$TMP/MUSE_ONESHOT.md")
+if [ "$oneshot_size" -ge 20000 ]; then
+  fail "prompt oneshot qua dai ($oneshot_size B, gioi han 20000 B)"
+else
+  ok "prompt oneshot trong gioi han ($oneshot_size B < 20000 B)"
+fi
+
+if grep -qE 'MUSE_BRIDGE_PY_EOF|MUSE_SIDE_SH_EOF|MUSE_INJECT_WD_EOF' "$TMP/MUSE_ONESHOT.md"; then
+  fail "prompt oneshot chua source code bus - se bi bo loc an toan cua Muse chan"
+else
+  ok "prompt oneshot khong chua source code bus"
+fi
+
+# Prompt oneshot phai du 7 buoc + co "khong hoi lai" + status block.
+for needle in "Bước 1" "Bước 2" "Bước 3" "Bước 4" "Bước 5" "Bước 6" "Bước 7" \
+               "Không hỏi tôi" "DIRECT_OK" "MUSE_PROBE" "Restart=always"; do
+  grep -q "$needle" "$TMP/MUSE_ONESHOT.md" || fail "prompt oneshot thieu '$needle'"
+done
+
+# --- 4) kiem tra may-local: MUSE_ONESHOT.md co dung ban render moi nhat khong? -
+if [ "$STRICT" = "0" ] && [ -f MUSE_ONESHOT.md ]; then
+  if python3 scripts/render_prompt.py --variant oneshot --out "$TMP/local_oneshot.md" >/dev/null 2>&1; then
+    if diff -u "$TMP/local_oneshot.md" MUSE_ONESHOT.md > "$TMP/diff_oneshot.txt"; then
+      ok "MUSE_ONESHOT.md dong bo voi template (may nay)"
+    else
+      fail "MUSE_ONESHOT.md lech voi ma nguon hien tai (xem diff tren)"
+      sed -n '1,40p' "$TMP/diff_oneshot.txt" >&2
+      echo "      sua bang: python3 scripts/render_prompt.py --variant oneshot" >&2
+    fi
+  else
+    echo "skip: khong detect duoc host/public key tren may nay - bo qua kiem tra MUSE_ONESHOT.md"
   fi
 fi
 

@@ -21,3 +21,7 @@ __pycache__/
 # MUSE_PROMPT.md la ARTIFACT RENDER (chua host/user/pubkey cua may that) -> KHONG commit.
 # Sinh lai bang: python3 scripts/render_prompt.py
 MUSE_PROMPT.md
+
+# MUSE_ONESHOT.md la artifact render cua bien "mot lan" (cung chua thong tin may).
+# Sinh lai bang: python3 scripts/render_prompt.py --variant oneshot
+MUSE_ONESHOT.md

@@ -14,11 +14,15 @@
 #      user:pass (port 3128 thi can token, dung sai se ra loi). Day la duong dang
 #      chay on dinh trong container.
 #
+# Khi container THIEU `socat` (cai apt qua proxy hay treo) -> duong 2 chay bang
+# `ts-connect-proxy.py` (python3 co san) thay cho socat.
+#
 # Luu y: script nay chay theo ProxyCommand cua ssh -> stdout CHI duoc phai la
 # du lieu mang. Moi dong log/loi phai ra stderr.
 # ==============================================================================
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_HOST="${1:?target host}"
 TARGET_PORT="${2:?target port}"
 
@@ -47,4 +51,15 @@ if timeout 8 bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "$TARGET_HOST" "$TARGET_PORT
 fi
 
 # --- 2) duong cuu: qua HTTP CONNECT proxy cua Hatch ---------------------------
-exec socat - "PROXY:$PROXY_HOST:$TARGET_HOST:$TARGET_PORT,proxyport=$PROXY_PORT${AUTH:+,proxyauth=$AUTH}"
+if command -v socat >/dev/null 2>&1; then
+  exec socat - "PROXY:$PROXY_HOST:$TARGET_HOST:$TARGET_PORT,proxyport=$PROXY_PORT${AUTH:+,proxyauth=$AUTH}"
+fi
+
+# socat khong co -> dung helper python (cung dung proxy CONNECT, khong can goi cai)
+PY_HELPER="${TS_CONNECT_PROXY:-$SCRIPT_DIR/ts-connect-proxy.py}"
+if [ -f "$PY_HELPER" ] && command -v python3 >/dev/null 2>&1; then
+  exec python3 "$PY_HELPER" "$TARGET_HOST" "$TARGET_PORT"
+fi
+
+echo "ts-socat-proxy: khong co socat va khong tim thay $PY_HELPER" >&2
+exit 1

@@ -333,6 +333,7 @@ muse_provision() {
   ssh_host_push "$port" "$SCRIPT_DIR/muse_side.sh" "cat > /root/.muse-bridge/muse_side.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > /root/.muse-bridge/inject_watchdog.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > /root/.muse-bridge/ts-socat-proxy.sh" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/ts-connect-proxy.py" "cat > /root/.muse-bridge/ts-connect-proxy.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > /root/.muse-bridge/reverse-tunnel.sh" || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge/reverse-tunnel.sh /root/.muse-bridge/ts-socat-proxy.sh" >/dev/null 2>&1 || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
@@ -357,14 +358,22 @@ muse_provision() {
   # tu dong authorize moi public key tren container (de moi may Muse duoc keo vao bus ngay)
   local pkgs
   pkgs="$(ssh_host "$port" "cat /root/.ssh/*.pub /home/hatch/.ssh/*.pub /home/hatch/workspace/muse-platform-setup/keys/*.pub /root/workspace/muse-platform-setup/keys/*.pub 2>/dev/null" 2>/dev/null | grep -E '^ssh-(ed25519|rsa) ' | sort -u)"
-  local pk
-  for pk in $pkgs; do
-    if ! grep -qxF "$pk" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+  local pk ktype kbody
+  # Doc TUNG DONG: `for pk in $pkgs` tach key thanh nhieu "tu" -> authorized_keys
+  # bi hong (thay "ssh-ed25519" va than body tach rieng). Comment bo di de key
+  # trung key deu so sanh duoc.
+  while IFS= read -r pk; do
+    [ -n "$pk" ] || continue
+    read -r ktype kbody _ <<< "$pk"
+    [ -n "${kbody:-}" ] || continue
+    pk="$ktype $kbody"
+    printf '%s\n' "$pk" | ssh-keygen -lf - >/dev/null 2>&1 || continue
+    if ! grep -qsF "$pk" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
       say "authorize key moi cua container: ${pk:0:40}..."
-      echo "$pk" >> "$HOME/.ssh/authorized_keys"
+      printf '%s\n' "$pk" >> "$HOME/.ssh/authorized_keys"
       chmod 600 "$HOME/.ssh/authorized_keys"
     fi
-  done
+  done <<< "$pkgs"
 
   say "setup xong; neu HELLO/REPORT chua den, chay 'bridge.sh sync --host $HOST' de gui lai"
 }
@@ -440,6 +449,7 @@ install_bundle_local() {
   install -m 0755 "$SCRIPT_DIR/inject_watchdog.py" "$STATE_DIR/bundle/inject_watchdog.py"
   install -m 0755 "$SCRIPT_DIR/reverse-tunnel.sh" "$STATE_DIR/bundle/reverse-tunnel.sh"
   install -m 0755 "$SCRIPT_DIR/ts-socat-proxy.sh" "$STATE_DIR/bundle/ts-socat-proxy.sh"
+  install -m 0755 "$SCRIPT_DIR/ts-connect-proxy.py" "$STATE_DIR/bundle/ts-connect-proxy.py"
   ensure_bundle_deb "$STATE_DIR/bundle/deb"
   # VERSION: container tu keo bundle moi khi version doi (huong container -> may ngoai)
   printf '%s\n' "$(date +%s)-$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)" > "$STATE_DIR/bundle/VERSION"
@@ -456,6 +466,7 @@ push_bundle() {
   ssh_host_push "$port" "$SCRIPT_DIR/inject_watchdog.py" "cat > $REMOTE_SPOOL/bundle/inject_watchdog.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > $REMOTE_SPOOL/bundle/reverse-tunnel.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > $REMOTE_SPOOL/bundle/ts-socat-proxy.sh" || true
+  ssh_host_push "$port" "$SCRIPT_DIR/ts-connect-proxy.py" "cat > $REMOTE_SPOOL/bundle/ts-connect-proxy.py" || true
   if [ -d "$STATE_DIR/bundle/deb" ]; then
     ssh_host "$port" "mkdir -p $REMOTE_SPOOL/deb $REMOTE_SPOOL/bundle/deb /home/hatch/.muse-bridge/deb 2>/dev/null" || true
     for deb in "$STATE_DIR/bundle/deb"/*.deb; do
@@ -565,9 +576,13 @@ cmd_daemon() {
   # Lớp canh phai GHI LOG vao file: stdout cua daemon co the la socket
   # (chay nền) -> say ra stdout bi nuot, khong ai thay gi.
   watch_say() { printf '%s %s\n' "$(date -Is)" "$*" >>"$log"; printf '[bridge] %s\n' "$*"; }
-  # vong lap auto-repair (nen): moi 5 phut, host nao chet -> gui tin nhan web de danh thuc container
+  # vong lap auto-repair (nen): host nao chet -> gui tin nhan web de danh thuc container
+  # Chu ky mac dinh 120s (khong phai 600s): cell cua Hatch refresh lien tuc, moi lan
+  # len chi song vai phut -> forward treo phai duoc don SOM, neu khong cell moi
+  # khong bind duoc port (loi "remote port forwarding failed for listen port N").
+  local watch_interval="${WATCH_INTERVAL:-120}"
   ( while true; do
-      sleep 600
+      sleep "$watch_interval"
       local ids; ids="$(host_ids)"
       for id in $ids; do
         local p; p="$(host_peer_port "$id")"
@@ -632,6 +647,56 @@ cmd_prompt() {
   return 0
 }
 
+# Prompt "mot lan": day du thong so de Agent Muse tu lam het tu A->Z, khong hoi lai.
+# Render ra .muse-hosts/<id>/MUSE_ONESHOT.md (gitignored) cho nguoi dung dan vao chat.
+cmd_oneshot() {
+  parse_flags "$@"
+  require_host
+  local want_print=0 want_clip=0 want_send=0 a
+  for a in ${REST[@]+"${REST[@]}"}; do
+    case "$a" in
+      --print) want_print=1 ;;
+      --clip)  want_clip=1 ;;
+      --send)  want_send=1 ;;
+    esac
+  done
+  local port; port="$(host_peer_port "$HOST")"
+  local spool; spool="$(host_local_spool "$HOST")"
+  local file="$REPO_HOSTS_DIR/$HOST/MUSE_ONESHOT.md"
+  mkdir -p "$(dirname "$file")"
+  python3 "$REPO_DIR/scripts/render_prompt.py" --variant oneshot \
+    --host "$(detect_ts_ip)" --port "$port" --spool "$spool" \
+    --host-id "$HOST" --out "$file" || die "render prompt that bai"
+  say "prompt mot lan: $file ($(wc -c < "$file") bytes)"
+
+  if [ "$want_clip" = "1" ]; then
+    if command -v xclip >/dev/null 2>&1; then
+      xclip -selection clipboard < "$file" && say "da copy vao clipboard"
+    elif command -v wl-copy >/dev/null 2>&1; then
+      wl-copy < "$file" && say "da copy vao clipboard"
+    else
+      warn "khong co xclip/wl-copy -> dung --print de copy thu cong"
+    fi
+  fi
+  [ "$want_print" = "1" ] && cat "$file"
+
+  if [ "$want_send" = "1" ]; then
+    say "gui prompt vao web Muse (chat moi)..."
+    local web_out thread
+    web_out="$(muse_web_send "$file" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
+    printf '%s\n' "$web_out" > "$REPO_HOSTS_DIR/$HOST/oneshot.log"
+    thread="$(echo "$web_out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+    if [ -n "$thread" ]; then
+      python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread" >/dev/null 2>&1 || true
+      say "thread: $thread"
+    else
+      warn "khong lay duoc THREAD_URL -> card khong co 'thread', auto-repair qua web se khong chay"
+    fi
+    printf '%s\n' "$web_out"
+  fi
+  return 0
+}
+
 cmd_hosts() {
   parse_flags "$@"
   printf '%-12s %-6s %-10s %-12s %s\n' ID PORT ALIAS SPOOL STATE
@@ -651,12 +716,16 @@ cmd_authorize() {
   parse_flags "$@"
   local key="$KEY"
   [ -n "$key" ] || die "usage: authorize --host <id> --key '<ssh-ed25519 ...>'"
+  # Bo comment, giu "type body" -> so sanh trung key (khac comment) van dung.
+  local ktype kbody
+  read -r ktype kbody _ <<< "$key"
+  [ -n "${kbody:-}" ] && key="$ktype $kbody"
   mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
   touch "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"
-  if grep -qxF "$key" "$HOME/.ssh/authorized_keys"; then
+  if grep -qsF "$key" "$HOME/.ssh/authorized_keys"; then
     say "key da co san trong authorized_keys"
   else
-    echo "$key" >> "$HOME/.ssh/authorized_keys"
+    printf '%s\n' "$key" >> "$HOME/.ssh/authorized_keys"
     say "da them key vao authorized_keys"
   fi
 }
@@ -1030,6 +1099,7 @@ case "${1:-}" in
   pull)      shift; cmd_pull "$@" ;;
   daemon)    shift; cmd_daemon "$@" ;;
   prompt)    shift; cmd_prompt "$@" ;;
+  oneshot)   shift; cmd_oneshot "$@" ;;
   push)      shift; cmd_push "$@" ;;
   hosts)     shift; cmd_hosts "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
@@ -1043,5 +1113,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|push|hosts|add-host|authorize|onboard|doctor|release}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|oneshot|push|hosts|add-host|authorize|onboard|doctor|release}"; exit 2 ;;
 esac

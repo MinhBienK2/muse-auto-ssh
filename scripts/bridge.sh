@@ -14,6 +14,10 @@
 #   sync --host <id>           gui lai cac tin choang gui (pending)
 #   daemon --host <id>         watcher inbox (log + thong bao desktop)
 #   prompt --host <id>         render MUSE_PROMPT.md cho host do
+#   oneshot --host <id>        render prompt "mot lan" (day du thong so) cho host do
+#                              [--print] [--clip] [--send]
+#                              (--send dan prompt vao web Muse va CHO doi den khi
+#                               Muse bao status block - co the treo toi ~10 phút)
 #   push --host <id>           day bundle moi len host do
 #   authorize --host <id> --key '<ssh-ed25519 ...>'  them key cua Muse
 #   doctor                     chan doan trang thai (forward, keepalive, key)
@@ -44,6 +48,7 @@ case "${1:-}" in
   pull)      shift; bash "$LOCAL_SIDE" pull "$@" ;;
   daemon)    shift; bash "$LOCAL_SIDE" daemon "$@" ;;
   prompt)    shift; bash "$LOCAL_SIDE" prompt "$@" ;;
+  oneshot)   shift; bash "$LOCAL_SIDE" oneshot "$@" ;;
   push)      shift; bash "$LOCAL_SIDE" push "$@" ;;
   authorize) shift; bash "$LOCAL_SIDE" authorize "$@" ;;
   selftest)  shift; bash "$REPO_DIR/tests/run_all.sh" ;;

@@ -215,14 +215,19 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
 │   ├── watchdog_upgrade_test.sh # nâng cấp watchdog trong Hatch hook (idempotent)
 │   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse + config per-port
+│   ├── sshd_config_guard_test.sh# tự phục hồi sshd_config bị platform xoá/ghi đè
 │   ├── tunnel_loop_test.sh      # vòng lặp tunnel + proxy helper (stub, không cần container)
+│   ├── forward_release_test.sh  # giải phóng đúng forward port (không kill session người khác)
+│   ├── strict_modes_test.sh     # authorized_keys: copy, không symlink
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
+│   ├── host_card_test.sh        # card host: cập nhật không mất trường cũ
 │   ├── oneshot_prompt_test.sh   # prompt "một lần": render + bash -n từng khối + proxy helper
 │   ├── muse_web_profile_test.sh # driver web clone đúng Chrome profile (multi-account)
 │   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
 │   └── selfheal_test.sh         # test THẬT (cần container): tự phục hồi khi tunnel bị giết
+├── .github/workflows/ci.yml     # CI: chạy selftest khi push
 ├── .githooks/pre-commit         # hook: chạy selftest trước mỗi commit
-└── .github/workflows/ci.yml     # CI: chạy selftest khi push
+└── .gitignore                   # artifact sinh ra + runtime state KHÔNG vào git
 ```
 
 ### 4.1 Script của thiết kế cũ (v1) — đã xoá

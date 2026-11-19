@@ -105,6 +105,14 @@ def main() -> int:
     ap.add_argument("--stdout", action="store_true")
     args = ap.parse_args()
 
+    if not os.path.isfile(TEMPLATE):
+        print(
+            "render_prompt: khong tim thay template: %s\n"
+            "  (template nam trong skill .claude/skills/setup-ssh-muse/reference/ - "
+            "clone repo day du hoac checkout nhanh feat/quickly-ssh)" % TEMPLATE,
+            file=sys.stderr,
+        )
+        return 1
     with open(TEMPLATE, "r", encoding="utf-8") as fh:
         text = fh.read()
 

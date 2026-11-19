@@ -59,7 +59,11 @@ nền tảng đã chặn nội dung dạng "khối script lớn" (05/11, 06/11).
 
 | Biến | Template | Giới hạn | Dùng khi |
 |---|---|---|---|
-| (duy nhất) | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` | < 20 KB | **máy Muse MỚI** — dán 1 lần là xong |
+| (duy nhất) | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` | < 18 KB (đang ~17 KB) | **máy Muse MỚI** — dán 1 lần là xong |
+
+**Vì sao giới hạn chặt?** Bộ lọc an toàn của nền tảng đã **từ chối** prompt lớn (05/11, 06/11).
+Prompt hiện ~17 KB; test + `check_prompt_sync.sh` **troi ở 18 KB** (trần cứng của bộ lọc là 20 KB) →
+phình quá 1 KB là bị chặn, nên phải rút gọn trước khi dán, đừng đợi đến lúc Muse từ chối.
 
 Prompt có bootstrap đầy đủ (key → sshd → proxy → kéo bundle → tunnel + systemd → tự kiểm →
 status block) và **hợp đồng "không hỏi lại"**. Nó vẫn là *prompt*, không phải *source

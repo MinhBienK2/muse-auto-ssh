@@ -52,12 +52,14 @@ else
   ok "template render khong con placeholder"
 fi
 
-# Prompt phai ngan: bo loc an toan cua Agent Muse chan "khong script lon".
+# Prompt phai ngan: bo loc an toan cua Agent Muse da chan "khoi script lon" 2 lan
+# (05/11, 06/11). Prompt hien tai do ~17 KB; troi som o 18 KB de bat phinh truoc
+# khi no cham bien 20 KB (tran cua bo loc).
 size=$(wc -c < "$TMP/MUSE_PROMPT.md")
-if [ "$size" -ge 20000 ]; then
-  fail "prompt qua dai ($size B, gioi han 20000 B) - co the bi bo loc an toan chan"
+if [ "$size" -ge 18000 ]; then
+  fail "prompt qua dai ($size B, troi chan 18000 B) - bo loc an toan cua Muse da chan prompt lon; rut gon template truoc khi dan"
 else
-  ok "prompt trong gioi han ($size B < 20000 B)"
+  ok "prompt trong gioi han ($size B < 18000 B)"
 fi
 
 # Prompt khong duoc chua source code cua bus (chi nen co ma ngan).

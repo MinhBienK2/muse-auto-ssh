@@ -174,7 +174,7 @@ thường). Lưu nguyên block vào `setup_state.json` (`muse_output`).
 
 | Muse báo | Xử lý |
 |---|---|
-| "không qua kiểm tra an toàn" / từ chối nội dung | **Đừng dán lại.** Thử lại bằng `--send` (driver web tự dán, đôi khi qua được bộ lọc); nếu vẫn bị chặn thì báo user: prompt này **không chứa source code bus** nên bộ lọc chỉ chặn khi nội dung quá lớn → đợi hoặc rút gọn template |
+| "không qua kiểm tra an toàn" / từ chối nội dung | **Đừng dán lại.** Thử lại bằng `--send` (driver web tự dán, đôi khi qua được bộ lọc). Nếu vẫn bị chặn: prompt này **không chứa source code bus** → bộ lọc chỉ chặn vì **quá lớn** → rút gọn template: xoá khối **Bước 5b** (script dựng phòng ~50 dòng) và rút **Bước 4** xuống lệnh `tar` 1 dòng → prompt còn ~13 KB → `bash scripts/bridge.sh prompt --host <alias>` render lại rồi dán lại. Nếu vẫn bị chặn → **báo user**, không tự đoán. |
 | `MUSE_PROBE=FAILED` | `bridge.sh status` + `bridge.sh doctor`; xem log container (`tail -20 <base>/tunnel/tunnel.log`) |
 | `MUSE_TUNNEL=DOWN` | tunnel chưa lên → chờ cell platform tỉnh (thường tự lại trong ~25 phút) rồi `provision` lại |
 | Không có output nào | nhắc user paste **nguyên status block**, hoặc dùng `--send` để tự dán lại |

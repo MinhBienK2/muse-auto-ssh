@@ -845,17 +845,25 @@ cmd_onboard() {
   say "thread: ${thread:-unknown}"
 
   # --- 2) doc status block -> authorize public key cua container -----------
+  # Status block la hop dong: 7 dong KEY=value. Chi doc dung ten bien, KHONG
+  # quet lung tung "ssh-ed25519 ..." (trong reply co ca key cua may ngoai).
   muse_web_args
-  python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" reply --wait-for "MUSE_PROBE|MUSE_PUBKEY|MUSE_TUNNEL" \
+  python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" reply --wait-for "MUSE_PUBKEY" \
     --timeout 300 > "$reply_file" 2>&1 || true
-  local muse_key
-  muse_key="$(grep -oE 'ssh-ed25519 [A-Za-z0-9+/=]+' "$reply_file" 2>/dev/null | head -1 || true)"
-  local local_key; local_key="$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")"
-  if [ -n "$muse_key" ] && [ "$muse_key" != "$local_key" ]; then
-    say "status block co public key cua Muse -> authorize o may ngoai"
-    cmd_authorize --key "$muse_key"
+  local muse_key muse_port
+  muse_key="$(grep -oE '^MUSE_PUBKEY=[A-Za-z0-9+/=]+' "$reply_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  muse_port="$(grep -oE '^MUSE_TUNNEL_PORT=[0-9]+' "$reply_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [ -z "$muse_key" ]; then
+    warn "status block chua co MUSE_PUBKEY -> chua authorize duoc key cua container (xem $reply_file)"
   else
-    warn "khong thay public key cua Muse trong reply -> xem $reply_file"
+    say "status block co MUSE_PUBKEY -> authorize o may ngoai"
+    cmd_authorize --key "$muse_key"
+  fi
+  # Port Muse tu chon co the khac port da cap -> dong bo 3 cho (config/card/alias)
+  if [ -n "$muse_port" ] && [ "$muse_port" != "$port" ]; then
+    say "Muse bao tunnel port $muse_port (da cap $port) -> doi port host"
+    cmd_set_port --port "$muse_port"
+    port="$muse_port"
   fi
 
   # --- 3) provision bus + watchdog len container --------------------------

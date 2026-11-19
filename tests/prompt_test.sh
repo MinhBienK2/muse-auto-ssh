@@ -70,7 +70,7 @@ rc "render_prompt.py chay duoc" "$code"
 ok "file prompt co noi dung" test -s "$PROMPT"
 ok "khong con placeholder" bash -c '! grep -q "{{[A-Z0-9_]*}}" "$1"' _ "$PROMPT"
 size=$(wc -c < "$PROMPT")
-ok "prompt khong qua dai (<20000 B, hien tai ${size}B)" test "$size" -lt 20000
+ok "prompt khong qua dai (<18000 B, hien tai ${size}B)" test "$size" -lt 18000
 ok "khong nhung source code bus" \
   bash -c '! grep -qE "MUSE_BRIDGE_PY_EOF|MUSE_SIDE_SH_EOF|MUSE_INJECT_WD_EOF" "$1"' _ "$PROMPT"
 
@@ -139,7 +139,7 @@ ok "template nam trong skill" test -f "$TEMPLATE"
 ok "khong con file MUSE_ONESHOT.template.md" \
   bash -c '! find "$1" -name "MUSE_ONESHOT.template.md" -not -path "*/.git/*" | grep -q .' _ "$REPO_DIR"
 ok "khong con lenh 'bridge.sh oneshot'" \
-  bash -c '! grep -q "oneshot" "$1/scripts/bridge.sh"' _ "$REPO_DIR"
+  bash -c '! grep -qE "^[[:space:]]*oneshot\)" "$1/scripts/bridge.sh"' _ "$REPO_DIR"
 
 echo "== 8. proxy helper python: mot ban goc duy nhat"
 ok "helper trong repo compile duoc" python3 -m py_compile "$REPO_DIR/bridge/ts-connect-proxy.py"

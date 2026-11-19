@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Render prompt dan cho Agent Muse tu template.
 
-Hai bien (cung mot renderer, hai template):
-  - short   : MUSE_PROMPT.template.md  -> MUSE_PROMPT.md     (4 buoc, dung cho chat da chay)
-  - oneshot : MUSE_ONESHOT.template.md -> MUSE_ONESHOT.md   (day du thong so, dan 1 lan la xong)
+Repo co DUNG MOT prompt:
+  .claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md -> MUSE_PROMPT.md
+
+Noi dung prompt nam trong skill (reference/) vi skill la noi duy nhat mo ta
+"ket noi 1 may Muse moi" - ca quy trinh agent, ca prompt dan sang Muse.
 
 Prompt khong nhung source code bus: code di qua kenh SSH da xac thuc (bundle keo tu may ngoai),
 nen khong lo bo loc an toan cua Agent Muse.
@@ -11,7 +13,7 @@ nen khong lo bo loc an toan cua Agent Muse.
 Usage:
     python3 scripts/render_prompt.py                              # -> MUSE_PROMPT.md
     python3 scripts/render_prompt.py --stdout
-    python3 scripts/render_prompt.py --variant oneshot --host-id muse4 --port 2225
+    python3 scripts/render_prompt.py --host-id muse4 --port 2225
     python3 scripts/render_prompt.py --host <TAILSCALE_IP> --user <USER> --port 2223
 """
 
@@ -26,10 +28,9 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUT = os.path.join(REPO, "MUSE_PROMPT.md")
 PROXY_PY = os.path.join(REPO, "bridge", "ts-connect-proxy.py")
-VARIANTS = {
-    "short": ("MUSE_PROMPT.template.md", DEFAULT_OUT),
-    "oneshot": ("MUSE_ONESHOT.template.md", os.path.join(REPO, "MUSE_ONESHOT.md")),
-}
+TEMPLATE = os.path.join(
+    REPO, ".claude", "skills", "setup-ssh-muse", "reference", "MUSE_PROMPT.template.md"
+)
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 
 # Gia tri co dinh cua container Muse (khong phu thuoc may cua nguoi dung).
@@ -92,7 +93,6 @@ def read_proxy_helper() -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--variant", choices=sorted(VARIANTS), default="short")
     ap.add_argument("--host", default="")
     ap.add_argument("--user", default="")
     ap.add_argument("--pubkey", default="")
@@ -105,10 +105,7 @@ def main() -> int:
     ap.add_argument("--stdout", action="store_true")
     args = ap.parse_args()
 
-    template_name, default_out = VARIANTS[args.variant]
-    template = os.path.join(REPO, "templates", template_name)
-
-    with open(template, "r", encoding="utf-8") as fh:
+    with open(TEMPLATE, "r", encoding="utf-8") as fh:
         text = fh.read()
 
     values = {
@@ -137,14 +134,14 @@ def main() -> int:
     if not values["LOCAL_HOST"] or not values["LOCAL_PUBKEY"]:
         print("render_prompt: thieu host/public key - chay 'bridge.sh arm' truoc", file=sys.stderr)
         return 1
-    if args.variant == "oneshot" and not values["PROXY_PY"]:
+    if not values["PROXY_PY"]:
         print("render_prompt: thieu bridge/ts-connect-proxy.py", file=sys.stderr)
         return 1
 
     if args.stdout:
         sys.stdout.write(text)
         return 0
-    out = args.out or default_out
+    out = args.out or DEFAULT_OUT
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(text)
     print("render_prompt: %s (%d bytes)" % (out, len(text)))

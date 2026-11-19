@@ -22,10 +22,6 @@ __pycache__/
 # Sinh lai bang: python3 scripts/render_prompt.py
 MUSE_PROMPT.md
 
-# MUSE_ONESHOT.md la artifact render cua bien "mot lan" (cung chua thong tin may).
-# Sinh lai bang: python3 scripts/render_prompt.py --variant oneshot
-MUSE_ONESHOT.md
-
-# setup_prompt.md la file user dan sang may Muse (ban copy cua MUSE_ONESHOT.md).
-# Chua thong tin may -> KHONG commit. Sinh bang: bash scripts/bridge.sh oneshot --host <id>
+# setup_prompt.md la file user dan sang may Muse (ban copy cua MUSE_PROMPT.md).
+# Chua thong tin may -> KHONG commit. Sinh bang: bash scripts/bridge.sh prompt --host <id>
 setup_prompt.md

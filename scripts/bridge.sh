@@ -15,8 +15,7 @@
 #   sync --host <id>           gui lai cac tin choang gui (pending)
 #   pull --host <id>           keo tin tu peer (khi chi con 1 chieu)
 #   daemon --host <id>         watcher inbox (log + thong bao desktop)
-#   prompt --host <id>         render MUSE_PROMPT.md cho host do
-#   oneshot --host <id>        render prompt "mot lan" (day du thong so) cho host do
+#   prompt --host <id>         render prompt cho host do (PROMPT DUY NHAT cua repo)
 #                              [--print] [--clip] [--send]
 #                              (--send dan prompt vao web Muse va CHO doi den khi
 #                               Muse bao status block - co the treo toi ~10 phút)
@@ -54,7 +53,6 @@ case "${1:-}" in
   pull)      shift; bash "$LOCAL_SIDE" pull "$@" ;;
   daemon)    shift; bash "$LOCAL_SIDE" daemon "$@" ;;
   prompt)    shift; bash "$LOCAL_SIDE" prompt "$@" ;;
-  oneshot)   shift; bash "$LOCAL_SIDE" oneshot "$@" ;;
   push)      shift; bash "$LOCAL_SIDE" push "$@" ;;
   authorize) shift; bash "$LOCAL_SIDE" authorize "$@" ;;
   selftest)  shift; bash "$REPO_DIR/tests/run_all.sh" ;;

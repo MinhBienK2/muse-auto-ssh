@@ -1,25 +1,27 @@
 #!/bin/bash
 # ==============================================================================
-# oneshot_prompt_test.sh - Kiem tra prompt "MOT LAN" (one-shot) cho may Muse moi.
+# prompt_test.sh - Kiem tra PROMPT DUY NHAT cua repo (nam trong skill
+# setup-ssh-muse/reference/MUSE_PROMPT.template.md).
 #
 #   1. Render duoc, khong con placeholder, khong nhung source code bus.
 #   2. Co du 7 buoc + noi dung bat buoc (proxy, keo bundle, systemd, status block).
 #   3. Moi khoi bash trong prompt parse duoc (bash -n) va proxy helper python
 #      compile duoc -> prompt dán vao chat la chay duoc ngay.
 #   4. Template khong chua gia tri rieng cua may nao (IP, duong dan home).
-#   5. bridge.sh oneshot render dung file cho host.
+#   5. bridge.sh prompt render dung file cho host.
+#   6. Repo khong con prompt thu hai (khong con file short/oneshot khac).
 #
 # Hermetic: HOME tam, tailscale gia (khong doc trang thai that cua may).
 # ==============================================================================
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP="$(mktemp -d /tmp/muse-oneshot-test.XXXXXX)"
+TMP="$(mktemp -d /tmp/muse-prompt-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
 export HOME="$TMP/home"
 mkdir -p "$HOME/.ssh"
-ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "muse-oneshot-test" >/dev/null 2>&1
+ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "muse-prompt-test" >/dev/null 2>&1
 export MUSE_BRIDGE_STATE="$TMP/state"
 export MUSE_BRIDGE_REPO_HOSTS="$TMP/repo-hosts"
 export MUSE_URL="https://muse.ai/"
@@ -55,16 +57,16 @@ rc() {
   fi
 }
 
-TEMPLATE="$REPO_DIR/templates/MUSE_ONESHOT.template.md"
-PROMPT="$TMP/MUSE_ONESHOT.md"
+TEMPLATE="$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
+PROMPT="$TMP/MUSE_PROMPT.md"
 
-echo "== 1. render prompt one-shot"
+echo "== 1. render prompt"
 code=0
-python3 "$REPO_DIR/scripts/render_prompt.py" --variant oneshot \
+python3 "$REPO_DIR/scripts/render_prompt.py" \
   --host 100.64.0.1 --user testuser --pubkey "ssh-ed25519 AAAAPROBE" \
   --port 2225 --spool "$TMP/spool" --host-id muse4 --hostname probehost \
   --bundle-dir "$TMP/bundle" --out "$PROMPT" >/dev/null || code=$?
-rc "render_prompt.py --variant oneshot chay duoc" "$code"
+rc "render_prompt.py chay duoc" "$code"
 ok "file prompt co noi dung" test -s "$PROMPT"
 ok "khong con placeholder" bash -c '! grep -q "{{[A-Z0-9_]*}}" "$1"' _ "$PROMPT"
 size=$(wc -c < "$PROMPT")
@@ -121,25 +123,23 @@ ok "template khong chua duong dan home rieng" bash -c '
   ! grep -nE "/home/[a-z][a-z0-9._-]+/" "$1" | grep -vE "/home/(hatch|root|user)/"
 ' _ "$TEMPLATE"
 
-echo "== 6. bridge.sh oneshot render dung file cho host"
+echo "== 6. bridge.sh prompt render dung file cho host"
 bash "$REPO_DIR/scripts/bridge.sh" add-host --host muse4 --port 2225 >/dev/null 2>&1
 code=0
-bash "$REPO_DIR/scripts/bridge.sh" oneshot --host muse4 >/dev/null 2>&1 || code=$?
-rc "bridge.sh oneshot chay duoc" "$code"
-ONESHOT_FILE="$MUSE_BRIDGE_REPO_HOSTS/muse4/MUSE_ONESHOT.md"
-ok "da render MUSE_ONESHOT.md cho host" test -s "$ONESHOT_FILE"
-ok "file chua port cua host" grep -q "2225" "$ONESHOT_FILE"
-ok "file chua host id" grep -q "muse4" "$ONESHOT_FILE"
+bash "$REPO_DIR/scripts/bridge.sh" prompt --host muse4 >/dev/null 2>&1 || code=$?
+rc "bridge.sh prompt chay duoc" "$code"
+PROMPT_FILE="$MUSE_BRIDGE_REPO_HOSTS/muse4/MUSE_PROMPT.md"
+ok "da render MUSE_PROMPT.md cho host" test -s "$PROMPT_FILE"
+ok "file chua port cua host" grep -q "2225" "$PROMPT_FILE"
+ok "file chua host id" grep -q "muse4" "$PROMPT_FILE"
 
-echo "== 7. ban short van dung (khong hong)"
-code=0
-python3 "$REPO_DIR/scripts/render_prompt.py" --host 100.64.0.1 --user testuser \
-  --pubkey "ssh-ed25519 AAAAPROBE" --port 2225 --spool "$TMP/spool" \
-  --out "$TMP/MUSE_PROMPT.md" >/dev/null || code=$?
-rc "render ban short chay duoc" "$code"
-short_size=$(wc -c < "$TMP/MUSE_PROMPT.md")
-ok "ban short van ngan (<12000 B, hien tai ${short_size}B)" test "$short_size" -lt 12000
-ok "ban short khong bi thay doi" grep -q "Bước 4" "$TMP/MUSE_PROMPT.md"
+echo "== 7. repo chi con MOT prompt"
+ok "khong con thu muc templates/" bash -c '! test -d "$1/templates"' _ "$REPO_DIR"
+ok "template nam trong skill" test -f "$TEMPLATE"
+ok "khong con file MUSE_ONESHOT.template.md" \
+  bash -c '! find "$1" -name "MUSE_ONESHOT.template.md" -not -path "*/.git/*" | grep -q .' _ "$REPO_DIR"
+ok "khong con lenh 'bridge.sh oneshot'" \
+  bash -c '! grep -q "oneshot" "$1/scripts/bridge.sh"' _ "$REPO_DIR"
 
 echo "== 8. proxy helper python: mot ban goc duy nhat"
 ok "helper trong repo compile duoc" python3 -m py_compile "$REPO_DIR/bridge/ts-connect-proxy.py"
@@ -207,5 +207,5 @@ ok "duong fallback python tra loi dung" grep -q "ECHO:hello" <<<"$out"
 kill "$server_pid" 2>/dev/null || true
 
 echo
-if [ "$fails" = "0" ]; then echo "ONESHOT_PROMPT_TEST: PASS"; else echo "ONESHOT_PROMPT_TEST: FAIL ($fails)"; fi
+if [ "$fails" = "0" ]; then echo "PROMPT_TEST: PASS"; else echo "PROMPT_TEST: FAIL ($fails)"; fi
 exit "$fails"

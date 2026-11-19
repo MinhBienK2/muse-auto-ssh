@@ -6,8 +6,8 @@
 Cung cap cho container Muse khi `socat` khong co (apt qua proxy hay treo) - dung
 `python3` co san. `ts-socat-proxy.sh` goi file nay khi thieu socat.
 
-Day la BAN GOC duy nhat cua proxy helper Python: prompt "mot lan" inject file nay
-vao chat (render_prompt.py --variant oneshot) nen khong co hai ban lech nhau.
+Day la BAN GOC duy nhat cua proxy helper Python: prompt dan cho Muse inject file nay
+vao chat (render_prompt.py) nen khong co hai ban lech nhau.
 """
 import os
 import select

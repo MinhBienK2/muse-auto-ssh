@@ -24,7 +24,7 @@ bản cũ nằm ở thư mục khác.
 | Proxy helper (socat) | `bridge/ts-socat-proxy.sh` |
 | Proxy helper (python, dùng khi container thiếu socat) | `bridge/ts-connect-proxy.py` |
 | Script loop tunnel | `bridge/reverse-tunnel.sh` |
-| Prompt dán cho Muse | `templates/MUSE_PROMPT.template.md` (bản short) · `templates/MUSE_ONESHOT.template.md` (bản một-lần) |
+| Prompt dán cho Muse | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` (duy nhất) |
 
 **Cách kiểm tra.** `git ls-files | xargs grep -l <tên file>` — nếu tên file xuất hiện ở nhiều nơi,
 đó là bản sao cần xoá hoặc thay bằng symlink.
@@ -47,31 +47,29 @@ Giá trị runtime lấy từ: `tunnel-<port>.conf` (phía Muse), `.muse-hosts/<
 ## 3. Prompt phải ngắn và không chứa mã
 
 **Quy tắc.** Prompt là thứ người dùng **dán vào chat của Agent Muse**. Bộ lọc an toàn của
-nền tảng đã chặn nội dung dạng "khối script lớn" (05/11, 06/11). Cả hai biến đều phải:
+nền tảng đã chặn nội dung dạng "khối script lớn" (05/11, 06/11). Prompt phải:
 
-- **không nhúng source code** của bus — code đi qua kênh SSH đã xác thực (bản `oneshot`: Muse
-  **tự kéo** bundle qua kênh đó ở Bước 4 của prompt);
+- **không nhúng source code** của bus — code đi qua kênh SSH đã xác thực (Muse **tự kéo**
+  bundle qua kênh đó ở Bước 4 của prompt);
 - **bằng lời**, mỗi bước một việc, để Agent Muse tự viết phần nó cần;
 - nói rõ **đường dẫn file tuyệt đối** mà Agent Muse phải tạo (`/root/.ssh/...`), vì `~` của
   Agent Muse không phải `~` của sshd.
 
-**Cách kiểm tra:** `bash scripts/check_prompt_sync.sh --strict` (kiểm tra cả hai biến) + `tests/oneshot_prompt_test.sh`.
+**Cách kiểm tra:** `bash scripts/check_prompt_sync.sh --strict` + `tests/prompt_test.sh`.
 
 | Biến | Template | Giới hạn | Dùng khi |
 |---|---|---|---|
-| `short` (mặc định) | `templates/MUSE_PROMPT.template.md` | < 12 KB | máy Muse đã chạy, cần đối thoại tiếp |
-| `oneshot` | `templates/MUSE_ONESHOT.template.md` | < 20 KB | **máy Muse MỚI** — dán 1 lần là xong |
+| (duy nhất) | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` | < 20 KB | **máy Muse MỚI** — dán 1 lần là xong |
 
-Bản `oneshot` dài hơn vì có thêm bootstrap (key → sshd → proxy → kéo bundle → tunnel + systemd →
-tự kiểm → status block) và **hợp đồng "không hỏi lại"**. Nó vẫn là *prompt*, không phải *source
+Prompt có bootstrap đầy đủ (key → sshd → proxy → kéo bundle → tunnel + systemd → tự kiểm →
+status block) và **hợp đồng "không hỏi lại"**. Nó vẫn là *prompt*, không phải *source
 code*: không có `bridge.py`/`muse_side.sh` nào nằm trong đó.
 
 **Sửa prompt:** sửa **template**, rồi render lại. Không sửa file đã render (`MUSE_PROMPT.md`,
-`MUSE_ONESHOT.md` — gitignore vì chứa pubkey/IP của máy bạn).
+`setup_prompt.md` — gitignore vì chứa pubkey/IP của máy bạn).
 
 ```bash
-python3 scripts/render_prompt.py                     # bản short -> MUSE_PROMPT.md
-python3 scripts/render_prompt.py --variant oneshot  # bản oneshot -> MUSE_ONESHOT.md
+python3 scripts/render_prompt.py   # -> MUSE_PROMPT.md
 ```
 
 ## 4. Thay đổi giao thức = thay đổi `PROTOCOL.md` + version

@@ -65,32 +65,27 @@ watchdog tự tạo lại (copy key từ seed bền vững) và máy ngoài sẽ
 
 ## 3. Lần chạy đầu tiên (prompt dán một lần)
 
-Có **hai bản prompt**, cùng do máy ngoài sinh ra:
+Repo có **một prompt duy nhất**, do máy ngoài sinh ra bằng `bridge.sh prompt --host <id>`:
+7 bước, **đầy đủ thông số** (IP, user, port, key path, bundle path, proxy) + quy tắc
+**"không hỏi lại, lỗi thì tự dùng fallback rồi đi tiếp, cuối cùng báo status block"** — hãy làm
+đúng thứ tự các bước, tự kiểm tra bằng lệnh thật, rồi báo status block. Nó cũng tự kéo bundle
+(bus + watchdog + loop tunnel) từ máy ngoài qua kênh SSH đã xác thực nên **không cần ai đẩy mã
+vào container**.
 
-| Bản | Sinh bằng | Khi nào |
-|---|---|---|
-| **short** (4 bước) | `bridge.sh prompt --host <id>` | bạn đã chạy, cần đối thoại tiếp |
-| **oneshot** (7 bước, đầy đủ thông số) | `bridge.sh oneshot --host <id>` | **máy Muse mới** — dán 1 lần là xong |
-
-Bản **oneshot** đã chứa sẵn mọi thông số (IP, user, port, key path, bundle path, proxy) và quy
-tắc **"không hỏi lại, lỗi thì tự dùng fallback rồi đi tiếp, cuối cùng báo status block"** — hãy
-làm đúng thứ tự các bước, tự kiểm tra bằng lệnh thật, rồi báo status block. Nó cũng tự kéo
-bundle (bus + watchdog + loop tunnel) từ máy ngoài qua kênh SSH đã xác thực nên **không cần ai
-đẩy mã vào container**.
-
-Bản short gồm 4 bước:
+Nội dung prompt (7 bước):
 
 1. Authorize public key của máy ngoài (ghi vào **cả** `/root/.ssh/authorized_keys` và
-   `~/.ssh/authorized_keys`).
+   `~/.ssh/authorized_keys` — copy, không symlink).
 2. Bảo đảm `sshd` trong container chạy — **kiểm tra `/usr/sbin/sshd` trước**; nếu đã có thì chỉ cần
    chạy nó, đừng cài `apt` (cài đặt hay bị treo vì container không ra ngoài thẳng được).
-3. Tạo helper proxy tự dò `HTTPS_PROXY` rồi thử SSH sang máy ngoài → phải ra `DIRECT_OK`.
-4. Mở reverse tunnel ở cổng được giao (mỗi máy Muse một cổng riêng), chạy nền, tự reconnect
-   mỗi 10 giây.
+3. Tạo helper proxy rồi thử SSH sang máy ngoài → phải ra `DIRECT_OK`.
+4. Kéo bundle (bus + watchdog + loop tunnel + deb cache) từ máy ngoài qua kênh SSH đã xác thực.
+5. Dựng tunnel + systemd `Restart=always` + watchdog 15 s (tự phục hồi vĩnh viễn).
+6. Tự kiểm tra bằng lệnh thật (đo, đừng tin lời hứa).
+7. Báo **status block** 7 dòng: `MUSE_HOST`, `MUSE_KEY`, `MUSE_PUBKEY`, `MUSE_TUNNEL_PORT`,
+   `MUSE_TUNNEL`, `MUSE_PERSISTENCE`, `MUSE_PROBE`.
 
-Sau đó báo 4 dòng: hostname, cổng tunnel, đường dẫn private key, public key tương ứng.
-
-> Phần còn lại (cài bus, watchdog, tự phục hồi) do **máy ngoài làm** qua chính kênh SSH vừa mở —
+> Phần còn lại (nếu bạn không tự kéo được bundle) do **máy ngoài làm** qua chính kênh SSH vừa mở —
 > bạn không cần tự chạy script lớn nào.
 
 ---

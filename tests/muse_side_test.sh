@@ -48,11 +48,11 @@ LOCAL_SPOOL="$TMP/local"
 MUSE_HOME="$TMP/muse"
 mkdir -p "$LOCAL_SPOOL" "$MUSE_HOME/.muse-bridge"
 
-echo "== 1. prompt ngan, khong chua code"
+echo "== 1. prompt vua giới hạn, khong chua code"
 python3 "$REPO_DIR/scripts/render_prompt.py" --host 100.64.0.1 --user testuser \
   --port 2223 --spool "$LOCAL_SPOOL" --out "$TMP/MUSE_PROMPT.md" >/dev/null
 size=$(wc -c < "$TMP/MUSE_PROMPT.md")
-ok "prompt ngan (<12KB, hien tai ${size}B)" test "$size" -lt 12000
+ok "prompt trong gioi han (<20KB, hien tai ${size}B)" test "$size" -lt 20000
 ok "prompt khong nhung ma nguon" bash -c '! grep -q MUSE_BRIDGE_PY_EOF "$1"' _ "$TMP/MUSE_PROMPT.md"
 ok "prompt co public key may ngoai" grep -q "ssh-ed25519" "$TMP/MUSE_PROMPT.md"
 ok "prompt co port cua host" grep -q "2223" "$TMP/MUSE_PROMPT.md"

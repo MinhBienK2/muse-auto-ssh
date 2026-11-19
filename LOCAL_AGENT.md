@@ -15,8 +15,9 @@ Bạn là **Agent Ngoài**: AI agent chạy trên máy tính cá nhân của ng�
 3. **Prompt cho Muse phải ngắn và bằng lời người dùng.** Bộ lọc an toàn của nền tảng Muse đã chặn
    nội dung dạng "dán khối script lớn"; Agent Muse cũng yêu cầu người dùng nói từng bước.
    Vì vậy `MUSE_PROMPT.md` **không chứa mã nguồn** — mã do bạn đẩy vào container sau khi kênh thông.
-   Sửa prompt thì sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py`
-   (file `MUSE_PROMPT.md` bị gitignore vì chứa host/user/pubkey của máy bạn).
+   Sửa prompt thì sửa `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi
+   `python3 scripts/render_prompt.py` (file `MUSE_PROMPT.md` bị gitignore vì chứa host/user/pubkey
+   của máy bạn).
 4. **Mỗi lần trả lời người dùng, kiểm tra hộp thư trước** (mục 4).
 5. **Trả lời đúng hạn**: tin `TASK`/`QUESTION` phải có tin trả lời kèm `reply_to`.
 6. **Không hard-code giá trị của máy này vào mã.** IP Tailscale, username, path → lấy từ
@@ -58,17 +59,16 @@ sudo bash scripts/install_sshd_keepalive.sh
 
 ### 3.0. Máy Muse MỚI — dán **một lần** là xong (không đối thoại setup)
 
-Bản prompt 4 bước (3.2) cố tình ngắn nên vẫn phải nói chuyện vài lượt. Với **máy mới**, dùng bản
-**một lần**: chứa sẵn mọi thông số + 7 bước bootstrap + hợp đồng "không hỏi lại, tự báo status
-block". Muse tự kéo bundle qua SSH nên không cần ai đẩy mã vào container.
+Repo có **một prompt duy nhất**: chứa sẵn mọi thông số + 7 bước bootstrap + hợp đồng "không hỏi
+lại, tự báo status block". Muse tự kéo bundle qua SSH nên không cần ai đẩy mã vào container.
 
 ```bash
 bash scripts/bridge.sh add-host --host <id> --port <port>   # nếu chưa đăng ký
-bash scripts/bridge.sh oneshot --host <id>                  # render .muse-hosts/<id>/MUSE_ONESHOT.md
-bash scripts/bridge.sh oneshot --host <id> --send           # tự dán vào chat Muse qua driver web
+bash scripts/bridge.sh prompt --host <id>                   # render .muse-hosts/<id>/MUSE_PROMPT.md
+bash scripts/bridge.sh prompt --host <id> --send            # tự dán vào chat Muse qua driver web
 ```
 
-Quy trình đầy đủ (hỏi user → arm → add-host → oneshot → chờ paste status block → provision →
+Quy trình đầy đủ (hỏi user → arm → add-host → prompt → chờ paste status block → provision →
 verify) nằm trong skill
 [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) — đọc file đó
 rồi làm theo, đừng tự chế lệnh.
@@ -85,10 +85,12 @@ bash scripts/bridge.sh onboard --host muse2
 1. render prompt (đúng port + spool riêng của host) → `.muse-hosts/<id>/MUSE_PROMPT.md`;
 2. điều khiển Chrome đã đăng nhập `muse.ai` (qua `bridge/muse_web.py`, CDP thuần Python) để tạo
    chat mới và gửi prompt;
-3. **bấm Allow** cho các hộp "Approval required" mà Muse hiện ra (SSH settings, network share);
-4. nếu Muse trả lời cần authorize key → tự thêm public key đó vào `~/.ssh/authorized_keys`;
-5. chờ tunnel lên ở cổng đã gán → **đẩy bus + watchdog + deb cache vào container** (lưu bền ở `/home/hatch/.muse-bridge/deb/`) và chạy setup phía Muse;
-6. xác nhận `PEER_STATE=OK`.
+3. chờ Agent Muse báo **status block** (7 dòng `MUSE_*`) → lấy `MUSE_PUBKEY` để authorize ở máy ngoài;
+4. chờ tunnel lên ở cổng đã gán → **đẩy bus + watchdog + deb cache vào container** (lưu bền ở `/home/hatch/.muse-bridge/deb/`) và chạy setup phía Muse;
+5. xác nhận `PEER_STATE=OK`.
+
+> Driver web **tự bấm Allow once** cho các hộp "Approval required" (`muse_web.py approve`). Nếu vẫn
+> bị chặn, báo user bấm tay — đừng giả vờ xong.
 
 ### 3.2. Thủ công (khi agent không tự động hoá được trình duyệt)
 
@@ -96,8 +98,8 @@ bash scripts/bridge.sh onboard --host muse2
 bash scripts/bridge.sh prompt --host muse2     # -> .muse-hosts/muse2/MUSE_PROMPT.md
 ```
 
-Dán nội dung đó vào chat của Agent Muse. Agent sẽ báo 4 dòng trạng thái; nếu nó hỏi thêm thì trả lời
-bằng lời của bạn (ngắn, từng bước một). Sau khi tunnel lên, chạy:
+Dán nội dung đó vào chat của Agent Muse. Agent sẽ báo **status block** 7 dòng; paste nguyên block
+về phía máy ngoài để nó làm nốt phần còn lại. Sau khi tunnel lên:
 
 ```bash
 bash scripts/bridge.sh push --host muse2       # đẩy bus + watchdog + deb cache vào container

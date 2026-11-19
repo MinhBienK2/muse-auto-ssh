@@ -64,59 +64,15 @@ container bị đóng băng sẽ giữ chết port forward `2222`/`2223` và con
 sudo bash scripts/install_sshd_keepalive.sh
 ```
 
-### Bước 2 — kết nối một máy Muse
+### Bước 2 — kết nối một máy Muse MỚI
 
-**Cách tự động (không phải copy/paste gì):**
+Repo có **một prompt duy nhất** (`reference/MUSE_PROMPT.template.md` trong skill): chứa sẵn Tailscale
+IP, user, port, public key, đường dẫn bundle, proxy, key path bền vững + **7 bước** bootstrap +
+hợp đồng **"không hỏi lại, tự đi tiếp, tự báo status block"**. Dán một lần là xong.
 
-```bash
-bash scripts/bridge.sh add-host --host muse2 --port 2223   # đăng ký host (tự chọn cổng nếu bỏ --port)
-bash scripts/bridge.sh onboard --host muse2                 # agent tự dán prompt vào web Muse và chờ kết nối
-```
+**Cách 1 — Claude Code (khuyên dùng): skill `/setup-ssh-muse`**
 
-`onboard` làm trọn vẹn: render prompt (4 bước bằng lời, đúng port) → điều khiển Chrome đã đăng nhập
-`muse.ai` để tạo chat mới và gửi prompt → **bấm Allow** cho các hộp phê duyệt của nền tảng → nếu Muse
-trả lời cần authorize key thì tự thêm vào `~/.ssh/authorized_keys` → chờ tunnel lên → **đẩy bus +
-watchdog vào container** → xác nhận `PEER_STATE=OK`.
-
-**Cách thủ công (nếu không muốn agent tự động hoá trình duyệt):**
-
-```bash
-bash scripts/bridge.sh prompt --host muse2    # sinh .muse-hosts/muse2/MUSE_PROMPT.md
-```
-
-Dán nội dung đó vào chat của Agent Muse, rồi trả lời các câu hỏi của nó **bằng lời, từng bước một**.
-Khi tunnel đã lên: `bash scripts/bridge.sh push --host muse2` để đẩy bus + watchdog vào container.
-
-### Bước 2' — Máy Muse MỚI: dán **một lần** là xong (không đối thoại setup)
-
-Bản prompt 4 bước ở trên cố tình **ngắn** (bộ lọc của nền tảng chặn khối script lớn) nên vẫn phải
-nói chuyện vài lượt. Với **máy Muse mới**, repo có thêm bản prompt **đầy đủ thông số**: chứa sẵn
-Tailscale IP, user, port, public key, đường dẫn bundle, proxy, key path bền vững + **7 bước**
-bootstrap + hợp đồng **"không hỏi lại, tự đi tiếp, tự báo status block"**.
-
-```bash
-bash scripts/bridge.sh add-host --host muse4 --port 2225   # (nếu chưa đăng ký host)
-bash scripts/bridge.sh oneshot --host muse4                # render .muse-hosts/muse4/MUSE_ONESHOT.md
-bash scripts/bridge.sh oneshot --host muse4 --print        # in ra để copy
-bash scripts/bridge.sh oneshot --host muse4 --clip         # copy vào clipboard
-bash scripts/bridge.sh oneshot --host muse4 --send         # tự dán vào chat Muse qua driver web
-```
-
-Dán nguyên file vào chat **mới** của Agent Muse → Muse tự: cài key → bảo đảm `sshd` → tạo proxy →
-**tự kéo bundle** từ máy bạn qua SSH → dựng tunnel + systemd `Restart=always` + watchdog 15s →
-tự kiểm tra → báo status block. Không cần trả lời câu hỏi nào của nó.
-
-> Agent làm việc theo skill [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md)
-> (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` → chờ bạn paste status block → hoàn tất).
-
-> **Vì sao prompt ngắn?** Bộ lọc an toàn của nền tảng Muse đã từ chối chạy "khối script lớn" dán vào
-> chat (05/11, 06/11) và Agent Muse yêu cầu người dùng nói từng bước bằng lời của họ. Vì vậy
-> `MUSE_PROMPT.md` **không chứa mã nguồn** — chỉ có 4 bước ngắn; toàn bộ mã được đẩy qua kênh SSH
-> đã xác thực sau khi kênh thông. Chi tiết: `PROTOCOL.md` mục 8.1.
-
-### Bước 2'' — Skill `/setup-ssh-muse`: agent tự setup **2 chiều** (hỏi → dán → chờ → xong)
-
-Nếu bạn dùng Claude Code, không cần chạy lệnh tay ở trên. Gõ:
+Gõ:
 
 ```
 /setup-ssh-muse
@@ -127,8 +83,8 @@ Agent sẽ:
 1. **Hỏi bạn vài câu** (click được): tên SSH alias (mặc định `muse-001`, nếu đã có thì kê tiếp
    `muse-002`…), cổng forward, profile Chrome.
 2. **Đăng ký host** (`arm` + `add-host`) → `ssh <alias>` là vào được ngay sau khi xong.
-3. **Sinh `setup_prompt.md`** ở gốc repo (bản copy của prompt one-shot, đã điền thông số máy
-   bạn) — file này **gitignore**, đừng commit.
+3. **Sinh `setup_prompt.md`** ở gốc repo (bản copy của prompt đã điền thông số máy bạn) — file
+   này **gitignore**, đừng commit.
 4. **DỪNG** và bảo bạn: copy file đó → dán vào chat **mới** của máy Muse.
 5. Muse làm xong sẽ báo **status block** (7 dòng `MUSE_HOST`, `MUSE_KEY`, `MUSE_PUBKEY`,
    `MUSE_TUNNEL_PORT`, `MUSE_TUNNEL`, `MUSE_PERSISTENCE`, `MUSE_PROBE`) → bạn **paste nguyên
@@ -141,6 +97,35 @@ Session bị ngắt giữa chừng thì gọi lại `/setup-ssh-muse --resume <a
 
 Skill: [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) ·
 test: `tests/setup_command_test.sh`.
+
+**Cách 2 — thủ công**
+
+```bash
+bash scripts/bridge.sh add-host --host muse4 --port 2225   # (nếu chưa đăng ký host)
+bash scripts/bridge.sh prompt --host muse4                  # render .muse-hosts/muse4/MUSE_PROMPT.md
+bash scripts/bridge.sh prompt --host muse4 --print          # in ra để copy
+bash scripts/bridge.sh prompt --host muse4 --clip           # copy vào clipboard
+bash scripts/bridge.sh prompt --host muse4 --send           # tự dán vào chat Muse qua driver web
+```
+
+Dán nguyên file vào chat **mới** của Agent Muse → Muse tự: cài key → bảo đảm `sshd` → tạo proxy →
+**tự kéo bundle** từ máy bạn qua SSH → dựng tunnel + systemd `Restart=always` + watchdog 15s →
+tự kiểm tra → báo status block. Không cần trả lời câu hỏi nào của nó.
+
+**Cách 3 — zero-touch (agent tự dán qua trình duyệt)**
+
+```bash
+bash scripts/bridge.sh onboard --host muse4
+```
+
+`onboard` làm trọn vẹn: render prompt (đúng port) → điều khiển Chrome đã đăng nhập `muse.ai` để tạo
+chat mới và gửi prompt → **tự bấm Allow** cho các hộp phê duyệt → chờ Agent Muse báo **status
+block** → authorize key của container → chờ tunnel lên → **đẩy bus + watchdog + deb cache vào
+container** → xác nhận `PEER_STATE=OK`.
+
+> **Vì sao prompt không chứa mã nguồn?** Bộ lọc an toàn của nền tảng Muse đã từ chối chạy "khối
+> script lớn" dán vào chat (05/11, 06/11). Vì vậy prompt chỉ có các lệnh ngắn; toàn bộ mã bus được
+> **kéo từ máy bạn qua kênh SSH đã xác thực** (Bước 4 của prompt). Chi tiết: `PROTOCOL.md` mục 8.1.
 
 ### Bước 3 — kiểm tra
 
@@ -233,16 +218,16 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>.json
 │   ├── check_prompt_sync.sh     # kiểm tra template + MUSE_PROMPT.md còn đồng bộ
 │   └── check_hygiene.sh         # quét IP/email/path riêng của máy + TODO/stub
-├── templates/
-│   ├── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
-│   └── MUSE_ONESHOT.template.md # ⭐ template của prompt "một lần" (đầy đủ thông số, 7 bước)
 ├── .claude/skills/
-│   └── setup-ssh-muse/SKILL.md  # ⭐ skill /setup-ssh-muse: hỏi → sinh setup_prompt.md → chờ paste → xong
+│   └── setup-ssh-muse/
+│       ├── SKILL.md              # ⭐ skill /setup-ssh-muse: hỏi → sinh setup_prompt.md → chờ paste → xong
+│       └── reference/
+│           └── MUSE_PROMPT.template.md  # ⭐ PROMPT DUY NHẤT của repo (7 bước, KHÔNG chứa mã bus)
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
 │   ├── watchdog_upgrade_test.sh # nâng cấp watchdog trong Hatch hook (idempotent)
-│   ├── muse_side_test.sh        # prompt ngắn + bundle phía Muse + config per-port
+│   ├── muse_side_test.sh        # bundle phía Muse + config per-port
 │   ├── sshd_config_guard_test.sh# tự phục hồi sshd_config bị platform xoá/ghi đè
 │   ├── tunnel_loop_test.sh      # vòng lặp tunnel + proxy helper (stub, không cần container)
 │   ├── forward_release_test.sh  # giải phóng đúng forward port (không kill session người khác)
@@ -250,7 +235,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── strict_modes_test.sh     # authorized_keys: copy, không symlink
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
 │   ├── host_card_test.sh        # card host: cập nhật không mất trường cũ
-│   ├── oneshot_prompt_test.sh   # prompt "một lần": render + bash -n từng khối + proxy helper
+│   ├── prompt_test.sh           # prompt duy nhất: render + bash -n từng khối + proxy helper
 │   ├── setup_command_test.sh    # skill /setup-ssh-muse: 7 chặng + status block 7 dòng + gitignore
 │   ├── muse_web_profile_test.sh # driver web clone đúng Chrome profile (multi-account)
 │   ├── tunnel_pattern_test.sh   # phát hiện tunnel không phụ thuộc thứ tự flag ssh
@@ -276,7 +261,7 @@ Bảng đối chiếu v1 → v2:
 | `local_finalize_persistence.sh` | `bash scripts/bridge.sh arm` (đã push bundle + cài TOFU) |
 | `outer_bridge.sh` | `bash scripts/bridge.sh status` / `inbox` |
 | `reverse-tunnel-g3.sh` | script loop do `muse_side.sh` sinh ra (`$BASE/tunnel/reverse-tunnel.sh`) |
-| `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh` |
+| `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh`; prompt nay nằm trong skill (`.claude/skills/setup-ssh-muse/reference/`) |
 
 Mailbox kiểu cũ (`~/muse-bridge/MUSE_STATUS.md`, `OUTER_TASKS.md`) **không còn dùng** — trao đổi
 giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCOL.md` mục 5–7.
@@ -299,8 +284,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh ack <id>` | Đánh dấu đã xử lý |
 | `bash scripts/bridge.sh sync` | Gửi lại tin đang chờ (`pending/`) |
 | `bash scripts/bridge.sh pull` | Kéo tin từ peer (khi chỉ còn 1 chiều) |
-| `bash scripts/bridge.sh prompt` | Render prompt cho Muse |
-| `bash scripts/bridge.sh oneshot --host <id>` | Render prompt **một-lần** (đầy đủ thông số) cho máy Muse mới — `--print` / `--clip` / `--send` |
+| `bash scripts/bridge.sh prompt --host <id>` | Render prompt cho Muse (prompt duy nhất của repo) — `--print` / `--clip` / `--send` |
 | `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
 | `bash scripts/bridge.sh provision --host <id>` | Đẩy bus + watchdog + chạy setup phía Muse |
 | `bash scripts/bridge.sh doctor` | Chẩn đoán: sshd, TOFU hook, từng host |
@@ -336,7 +320,7 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |
 | `Permission denied (publickey,password)` khi SSH ra ngoài | `ssh` không tìm thấy private key của container | Thêm `-i /home/hatch/.ssh/id_ed25519` (key không nằm ở `/root/.ssh/`) |
 | Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key gốc nằm ở `/home/hatch/.ssh/authorized_keys` và được **copy** sang `/root/.ssh/authorized_keys` (chmod 600). **Không symlink** — `/home/hatch` group-writable → `sshd` `StrictModes` từ chối key → `Permission denied` |
-| Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `templates/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
+| Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 | `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
 
 ---

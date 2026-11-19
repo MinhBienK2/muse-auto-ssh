@@ -715,22 +715,6 @@ cmd_push() {
 cmd_prompt() {
   parse_flags "$@"
   require_host
-  local port; port="$(host_peer_port "$HOST")"
-  local spool; spool="$(host_local_spool "$HOST")"
-  local out="$REPO_HOSTS_DIR/$HOST/MUSE_PROMPT.md"
-  mkdir -p "$(dirname "$out")"
-  python3 "$REPO_DIR/scripts/render_prompt.py" \
-    --host "$(detect_ts_ip)" --port "$port" --spool "$spool" --out "$out" || die "render prompt that bai"
-  say "prompt: $out"
-  [ "${1:-}" = "--print" ] && cat "$out"
-  return 0
-}
-
-# Prompt "mot lan": day du thong so de Agent Muse tu lam het tu A->Z, khong hoi lai.
-# Render ra .muse-hosts/<id>/MUSE_ONESHOT.md (gitignored) cho nguoi dung dan vao chat.
-cmd_oneshot() {
-  parse_flags "$@"
-  require_host
   local want_print=0 want_clip=0 want_send=0 a
   for a in ${REST[@]+"${REST[@]}"}; do
     case "$a" in
@@ -741,29 +725,29 @@ cmd_oneshot() {
   done
   local port; port="$(host_peer_port "$HOST")"
   local spool; spool="$(host_local_spool "$HOST")"
-  local file="$REPO_HOSTS_DIR/$HOST/MUSE_ONESHOT.md"
-  mkdir -p "$(dirname "$file")"
-  python3 "$REPO_DIR/scripts/render_prompt.py" --variant oneshot \
-    --host "$(detect_ts_ip)" --port "$port" --spool "$spool" \
-    --host-id "$HOST" --out "$file" || die "render prompt that bai"
-  say "prompt mot lan: $file ($(wc -c < "$file") bytes)"
+  local out="$REPO_HOSTS_DIR/$HOST/MUSE_PROMPT.md"
+  mkdir -p "$(dirname "$out")"
+  python3 "$REPO_DIR/scripts/render_prompt.py" \
+    --host "$(detect_ts_ip)" --port "$port" --spool "$spool" --host-id "$HOST" --out "$out" \
+    || die "render prompt that bai"
+  say "prompt: $out ($(wc -c < "$out") bytes)"
 
   if [ "$want_clip" = "1" ]; then
     if command -v xclip >/dev/null 2>&1; then
-      xclip -selection clipboard < "$file" && say "da copy vao clipboard"
+      xclip -selection clipboard < "$out" && say "da copy vao clipboard"
     elif command -v wl-copy >/dev/null 2>&1; then
-      wl-copy < "$file" && say "da copy vao clipboard"
+      wl-copy < "$out" && say "da copy vao clipboard"
     else
       warn "khong co xclip/wl-copy -> dung --print de copy thu cong"
     fi
   fi
-  [ "$want_print" = "1" ] && cat "$file"
+  [ "$want_print" = "1" ] && cat "$out"
 
   if [ "$want_send" = "1" ]; then
     say "gui prompt vao web Muse (chat moi)..."
     local web_out thread
-    web_out="$(muse_web_send "$file" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
-    printf '%s\n' "$web_out" > "$REPO_HOSTS_DIR/$HOST/oneshot.log"
+    web_out="$(muse_web_send "$out" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
+    printf '%s\n' "$web_out" > "$REPO_HOSTS_DIR/$HOST/prompt-send.log"
     thread="$(echo "$web_out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
     if [ -n "$thread" ]; then
       python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread" >/dev/null 2>&1 || true
@@ -852,57 +836,27 @@ cmd_onboard() {
   say "prompt da render: $prompt_file"
 
   # --- 1) gui prompt vao web Muse -----------------------------------------
+  # Prompt da day du thong so: Agent Muse tu lam A->Z va tu bao status block
+  # (MUSE_PROBE / MUSE_PUBKEY / ...). Khong can vong lap doi thoai nhu prompt 4 buoc.
   say "gui prompt vao web Muse ($MUSE_URL) ..."
-  local out; out="$(muse_web_send "$prompt_file" "" "DIRECT_OK|trong suốt|tunnel|cổng")"
+  local out; out="$(muse_web_send "$prompt_file" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
   echo "$out" > "$dir/web.log"
   thread="$(echo "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
   say "thread: ${thread:-unknown}"
 
-  # --- 2) vong lap doi thoai: authorize key / tra loi / cho tunnel ---------
-  local _i
-  for _i in $(seq 1 8); do
-    if host_reachable "$port"; then
-      say "KET NOI DUOC (port $port)"
-      break
-    fi
-    muse_web_args
-    python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" reply --wait-for "DIRECT_OK|trong suốt|tunnel|cổng|không|lỗi" \
-      --timeout 90 > "$reply_file" 2>&1 || true
-
-    # neu reply chua public key cua Muse -> authorize o may ngoai
-    local muse_key
-    muse_key="$(grep -oE 'ssh-ed25519 [A-Za-z0-9+/=]+' "$reply_file" 2>/dev/null | head -1 || true)"
-    local local_key; local_key="$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")"
-    if [ -n "$muse_key" ] && [ "$muse_key" != "$local_key" ]; then
-      say "reply co public key cua Muse -> authorize o may ngoai"
-      cmd_authorize --key "$muse_key"
-    fi
-
-    # gui yeu cau tiep theo cho agent
-    local follow="$dir/follow.txt"
-    local probe_err; probe_err="$(ssh_host "$port" 'true' 2>&1 | tail -1)"
-    if echo "$probe_err" | grep -qi "permission denied"; then
-      # sshd cua container chay voi user root -> doc /root/.ssh/authorized_keys
-      say "may ngoai bi tu choi key -> nho agent them vao /root/.ssh/authorized_keys"
-      printf '%s\n' \
-        "Tôi không đăng nhập được vào container của bạn (Permission denied): sshd chạy với user root nên nó đọc /root/.ssh/authorized_keys, không phải /home/hatch/.ssh/authorized_keys. Bạn chạy:" \
-        "" \
-        "echo '$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys" \
-        "" \
-        "Xong báo tôi 'xong'." > "$follow"
-    elif grep -qi "permission denied" "$reply_file" 2>/dev/null; then
-      say "agent bao Permission denied -> da authorize, nho thu lai"
-      printf '%s\n' "Máy tôi đã authorize public key của bạn trong authorized_keys. Bạn thử lại bước SSH từ container sang máy tôi ($ts_ip) và báo tôi kết quả; nếu thông thì mở reverse tunnel cổng $port như đã nói." > "$follow"
-    elif grep -qiE "cho tôi biết|cần gì|bạn muốn tôi làm gì|hỏi" "$reply_file" 2>/dev/null; then
-      say "agent hoi them -> tra loi theo cac buoc da gui"
-      printf '%s\n' "Cứ làm tiếp theo đúng các bước tôi đã nói ở trên (bước 1, 2, 3, 4), mỗi bước một lệnh ngắn. Nếu bước nào lỗi thì dừng và báo tôi nguyên văn lỗi." > "$follow"
-    else
-      break
-    fi
-    say "gui tin nhan tiep theo cho agent ..."
-    out="$(muse_web_send "$follow" "$thread" "DIRECT_OK|trong suốt|tunnel|cổng")"
-    echo "$out" >> "$dir/web.log"
-  done
+  # --- 2) doc status block -> authorize public key cua container -----------
+  muse_web_args
+  python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" reply --wait-for "MUSE_PROBE|MUSE_PUBKEY|MUSE_TUNNEL" \
+    --timeout 300 > "$reply_file" 2>&1 || true
+  local muse_key
+  muse_key="$(grep -oE 'ssh-ed25519 [A-Za-z0-9+/=]+' "$reply_file" 2>/dev/null | head -1 || true)"
+  local local_key; local_key="$(awk '{print $1" "$2}' "${LOCAL_KEY}.pub")"
+  if [ -n "$muse_key" ] && [ "$muse_key" != "$local_key" ]; then
+    say "status block co public key cua Muse -> authorize o may ngoai"
+    cmd_authorize --key "$muse_key"
+  else
+    warn "khong thay public key cua Muse trong reply -> xem $reply_file"
+  fi
 
   # --- 3) provision bus + watchdog len container --------------------------
   if host_reachable "$port"; then
@@ -1178,7 +1132,6 @@ case "${1:-}" in
   pull)      shift; cmd_pull "$@" ;;
   daemon)    shift; cmd_daemon "$@" ;;
   prompt)    shift; cmd_prompt "$@" ;;
-  oneshot)   shift; cmd_oneshot "$@" ;;
   push)      shift; cmd_push "$@" ;;
   hosts)     shift; cmd_hosts "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
@@ -1193,5 +1146,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|oneshot|push|hosts|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
 esac

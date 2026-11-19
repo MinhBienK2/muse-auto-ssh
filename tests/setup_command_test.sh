@@ -14,7 +14,7 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CMD="$REPO_DIR/.claude/skills/setup-ssh-muse/SKILL.md"
-TPL="$REPO_DIR/templates/MUSE_ONESHOT.template.md"
+TPL="$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
 
 fails=0
 ok() {
@@ -54,9 +54,9 @@ for c in "Chặng A" "Chặng B" "Chặng C" "Chặng D" "Chặng E" "Chặng F"
 done
 
 echo "== 3. dung lenh repo (khong tu che lenh)"
-for cmd in "bridge.sh arm" "bridge.sh add-host" "bridge.sh set-port" "bridge.sh oneshot" \
+for cmd in "bridge.sh arm" "bridge.sh add-host" "bridge.sh set-port" "bridge.sh prompt" \
            "bridge.sh authorize" "bridge.sh provision" "bridge.sh status" "bridge.sh doctor" \
-           "bridge.sh selftest" "bridge.sh prompt" "bridge.sh onboard"; do
+           "bridge.sh selftest" "bridge.sh onboard"; do
   ok "co lenh '$cmd'" has "$CMD" "$cmd"
 done
 ok "doi port bang set-port, khong chay lai add-host" \

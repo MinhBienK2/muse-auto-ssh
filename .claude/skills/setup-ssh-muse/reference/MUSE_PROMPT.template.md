@@ -1,8 +1,9 @@
-# PROMPT MỘT-LẦN CHO AGENT MUSE — dán nguyên file này vào chat của Agent Muse
+# PROMPT CHO AGENT MUSE — dán nguyên file này vào chat của Agent Muse
 
-> Sinh tự động bởi `scripts/render_prompt.py --variant oneshot` từ `templates/MUSE_ONESHOT.template.md`.
-> Bản "một lần" này **thay thế** bản 4 bước (`MUSE_PROMPT.md`): mọi thông số của máy tôi đã nằm
-> sẵn trong đây nên **bạn không phải hỏi lại tôi một câu nào**.
+> Sinh tự động bởi `scripts/render_prompt.py` từ
+> `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md`.
+> **Đây là prompt duy nhất của repo** — mọi thông số của máy tôi đã nằm sẵn trong đây nên
+> **bạn không phải hỏi lại tôi một câu nào**.
 >
 > Vì sao vẫn an toàn với bộ lọc của nền tảng: prompt này **không chứa source code** của bus —
 > chỉ có các lệnh ngắn để dựng kênh. Toàn bộ mã (bus, watchdog, loop tunnel) được **kéo từ máy

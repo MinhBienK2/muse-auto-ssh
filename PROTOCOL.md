@@ -227,17 +227,17 @@ stateDiagram-v2
 
 | Rào chắn | Biểu hiện | Cách xử lý trong thiết kế này |
 |---|---|---|
-| **Bộ lọc an toàn nội dung** | Agent từ chối chạy khối script lớn dán vào chat (05/11, 06/11) | Prompt **không chứa mã nguồn**, chỉ 4 bước ngắn bằng lời người dùng; mã do máy ngoài đẩy vào container sau khi kênh thông |
+| **Bộ lọc an toàn nội dung** | Agent từ chối chạy khối script lớn dán vào chat (05/11, 06/11) | Prompt **không chứa mã nguồn**, chỉ các lệnh ngắn bằng lời người dùng; mã do máy ngoài đẩy vào container sau khi kênh thông |
 | **Cổng phê duyệt (approval)** | Hộp "Approval required: modify SSH settings / share information with…" chặn agent gửi tiếp | `muse_web.py` tự bấm **Allow once** (`muse_web.py approve`) |
-| **Agent hỏi lại bằng lời** | "Bạn nói bằng lời của bạn bước nào bạn muốn mình làm trước" | Vòng lặp đối thoại trong `onboard`: đọc reply → authorize key nếu cần → gửi lệnh tiếp theo bằng lời tự nhiên |
+| **Agent hỏi lại bằng lời** | "Bạn nói bằng lời của bạn bước nào bạn muốn mình làm trước" | Prompt có **QUY TẮC VÀNG "không hỏi tôi"** + đầy đủ thông số → Agent Muse tự dò và đi tiếp |
 
 Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao giờ đi qua hộp chat.
 
-> **Biến thể "một lần" (`oneshot`):** ngoài bản 4 bước, repo có thêm bản prompt **đầy đủ thông số**
-> (`templates/MUSE_ONESHOT.template.md` → `.muse-hosts/<id>/MUSE_ONESHOT.md`, sinh bằng
-> `bridge.sh oneshot --host <id>`) dành cho **máy Muse mới**: prompt chứa sẵn Tailscale IP, user,
-> port, spool, public key, đường dẫn bundle, proxy, key path bền vững — kèm **7 bước** bootstrap và
-> hợp đồng **"không hỏi lại, tự đi tiếp, tự báo cáo status block"**.
+> **Prompt duy nhất của repo:** `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md`
+> → `.muse-hosts/<id>/MUSE_PROMPT.md` (sinh bằng `bridge.sh prompt --host <id>`), dành cho **máy
+> Muse mới**: prompt chứa sẵn Tailscale IP, user, port, spool, public key, đường dẫn bundle,
+> proxy, key path bền vững — kèm **7 bước** bootstrap và hợp đồng **"không hỏi lại, tự đi tiếp,
+> tự báo cáo status block"**.
 > Bản này **vẫn không chứa source code bus**: mã do Muse **tự kéo** từ máy ngoài qua kênh SSH đã
 > xác thực (Bước 4 của prompt) → bộ lọc an toàn không có gì để chặn. Kết quả: dán **một lần** →
 > Muse tự dựng tunnel + systemd (`Restart=always`) + watchdog 15s → kênh sống vĩnh viễn, không
@@ -313,8 +313,8 @@ sequenceDiagram
     MA->>LA: HELLO + REPORT
 ```
 
-`bridge.sh prompt` render từ `templates/MUSE_PROMPT.template.md` + mã nguồn chung, nên **prompt
-luôn khớp với mã đang chạy** — không bao giờ lệch phiên bản.
+`bridge.sh prompt` render từ `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` +
+mã nguồn chung, nên **prompt luôn khớp với mã đang chạy** — không bao giờ lệch phiên bản.
 
 ### Flow C — "Muse thiếu gì thì hỏi máy tôi"
 

@@ -27,12 +27,11 @@ ok() {
 
 # File nao duoc doc bai Agent Muse hoac người dùng -> phai noi COPY, khong noi symlink.
 DOCS=(
-  "templates/MUSE_PROMPT.template.md"
+  ".claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
   "MUSE_AGENT.md"
   "AGENTS.md"
   "README.md"
   "PROTOCOL.md"
-  "templates/MUSE_ONESHOT.template.md"
 )
 
 echo "== 1. tai lieu khong con 'nen tao symlink' cho authorized_keys"
@@ -59,10 +58,10 @@ done
 echo "== 2. prompt template dung cp (khong ln -sf) cho authorized_keys"
 ok "prompt dung cp -f" \
   grep -q "cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys" \
-  "$REPO_DIR/templates/MUSE_PROMPT.template.md"
+  "$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
 ok "prompt khong dung ln -sf cho authorized_keys" \
   bash -c '! grep -q "ln -sf /home/hatch/.ssh/authorized_keys" "$1"' \
-  _ "$REPO_DIR/templates/MUSE_PROMPT.template.md"
+  _ "$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
 
 echo "== 3. local_side.sh (repair) copy key tu seed, khong tao symlink"
 ok "repair dung cp -f tu seed" \

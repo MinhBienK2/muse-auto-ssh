@@ -566,9 +566,59 @@ cmd_daemon() {
   mkdir -p "$STATE_DIR/logs"
   local log="$STATE_DIR/logs/inbox-$HOST.log"
   say "daemon: watching spool cua host '$HOST' (Ctrl-C de dung)"
+
+  # Log canh phai GIOI HAN. Vong lap poll moi 10s, moi lan in "SYNC
+  # nothing-pending" + "PULL failed: ..." -> 2 tuan len 9MB, khong ai doc.
+  # -> Loc dong rong, ghep dong trung lap (qua ca cac vong poll), cat log khi
+  #    vuot 1MB. Dong lap ghi lai moi 20 lan -> van thay trang thai hien tai.
+  DAEMON_LOG_PREV="" DAEMON_LOG_CNT=0
+  daemon_log_line() {  # daemon_log_line <text> <so_lan>
+    local text="$1" n="${2:-1}"
+    if [ "$n" -gt 1 ]; then
+      printf '%s %s [x%d lan]\n' "$(date -Is)" "$text" "$n" >>"$log"
+    else
+      printf '%s %s\n' "$(date -Is)" "$text" >>"$log"
+    fi
+    return 0
+  }
+  daemon_log_filter() {
+    local line
+    while IFS= read -r line; do
+      case "$line" in
+        "SYNC nothing-pending"|"PULL nothing"|"PULL messages=0"*) continue ;;
+      esac
+      [ -z "$line" ] && continue
+      if [ -n "${DAEMON_LOG_PREV:-}" ] && [ "$line" = "$DAEMON_LOG_PREV" ]; then
+        DAEMON_LOG_CNT=$(( ${DAEMON_LOG_CNT:-0} + 1 ))
+        # Chi ghep lai moi 20 lan -> trang thai hien tai van thay, log khong phinh.
+        if [ $((DAEMON_LOG_CNT % 20)) -eq 0 ]; then
+          daemon_log_line "$DAEMON_LOG_PREV" "$DAEMON_LOG_CNT"
+        fi
+        continue
+      fi
+      if [ -n "${DAEMON_LOG_PREV:-}" ]; then daemon_log_line "$DAEMON_LOG_PREV" "${DAEMON_LOG_CNT:-0}"; fi
+      DAEMON_LOG_PREV="$line"; DAEMON_LOG_CNT=1
+      daemon_log_line "$line" 1
+    done
+    return 0
+  }
+  # Cat log con 300 dong cuoi khi vuot 1MB.
+  daemon_log_cap() {
+    local size
+    size="$(stat -c%s "$log" 2>/dev/null || echo 0)"
+    if [ "$size" -gt 1048576 ]; then
+      tail -n 300 "$log" >"$log.tmp" 2>/dev/null && mv -f "$log.tmp" "$log"
+      say "da cat log canh con 300 dong cuoi ($log)"
+    fi
+    return 0
+  }
+
   ( while true; do
-      bus_py pull >>"$log" 2>&1 || true
-      bus_py sync >>"$log" 2>&1 || true
+      # KHONG dung pipe `cmd | daemon_log_filter`: filter se chay o subshell ->
+      # bien trang thai (DAEMON_LOG_PREV/CNT) khong song sot qua cac vong poll.
+      # Here-string giu filter o shell hien tai.
+      daemon_log_filter <<< "$({ bus_py pull || true; bus_py sync || true; } 2>&1)"
+      daemon_log_cap
       sleep 10
     done ) &
   SYNC_PID=$!

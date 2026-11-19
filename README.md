@@ -218,6 +218,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── sshd_config_guard_test.sh# tự phục hồi sshd_config bị platform xoá/ghi đè
 │   ├── tunnel_loop_test.sh      # vòng lặp tunnel + proxy helper (stub, không cần container)
 │   ├── forward_release_test.sh  # giải phóng đúng forward port (không kill session người khác)
+│   ├── daemon_log_test.sh       # log daemon: lọc dòng rỗng, gộp dòng lặp, giới hạn kích thước
 │   ├── strict_modes_test.sh     # authorized_keys: copy, không symlink
 │   ├── hosts_test.sh            # đăng ký nhiều host: port, alias, spool, prompt
 │   ├── host_card_test.sh        # card host: cập nhật không mất trường cũ

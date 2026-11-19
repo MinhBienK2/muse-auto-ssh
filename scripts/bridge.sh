@@ -5,6 +5,7 @@
 #   hosts                      danh sach cac Muse host da dang ky
 #   add-host --host <id>       dang ky Muse host moi (port, ssh alias, spool)
 #                              [--profile-dir "Profile 2"]  <- Chrome profile/account
+#   set-port --host <id> --port <p>  doi port host da dang ky (khong ghi lai card)
 #   onboard --host <id>       \x{1}trong suot: dang ky -> gui prompt qua web Muse -> xac nhan
 #   arm --host <id>            chuan bi moi truong may ngoai (idempotent)
 #   status --host <id>         trang thai kenh hai chieu
@@ -12,6 +13,7 @@
 #   send --host <id> --type .. gui tin nhan cho Muse
 #   ack --host <id> <id>       danh dau da xu ly
 #   sync --host <id>           gui lai cac tin choang gui (pending)
+#   pull --host <id>           keo tin tu peer (khi chi con 1 chieu)
 #   daemon --host <id>         watcher inbox (log + thong bao desktop)
 #   prompt --host <id>         render MUSE_PROMPT.md cho host do
 #   oneshot --host <id>        render prompt "mot lan" (day du thong so) cho host do
@@ -19,6 +21,9 @@
 #                              (--send dan prompt vao web Muse va CHO doi den khi
 #                               Muse bao status block - co the treo toi ~10 phút)
 #   push --host <id>           day bundle moi len host do
+#   provision --host <id>      day bus + watchdog + chay setup phia container
+#   reprovision --host <id>    provision lai (bus bi mat sau khi container refresh)
+#   repair --host <id>         danh thuc container Muse bi dong bang qua web
 #   authorize --host <id> --key '<ssh-ed25519 ...>'  them key cua Muse
 #   doctor                     chan doan trang thai (forward, keepalive, key)
 #   release --host <id>        dung session ssh cu giu port forward (container treo)
@@ -35,6 +40,7 @@ case "${1:-}" in
   doctor)    shift; bash "$LOCAL_SIDE" doctor "$@" ;;
   release)   shift; bash "$LOCAL_SIDE" release "$@" ;;
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
+  set-port)  shift; bash "$LOCAL_SIDE" set-port "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;
   repair)    shift; bash "$LOCAL_SIDE" repair "$@" ;;

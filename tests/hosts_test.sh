@@ -41,6 +41,16 @@ rc() {
   fi
 }
 
+# rc_nonzero <label> <exit-code>  -- exit != 0 = PASS (truong hop loi)
+rc_nonzero() {
+  if [ "$2" != "0" ]; then
+    echo "  ok   - $1"
+  else
+    echo "  FAIL - $1"
+    fails=$((fails + 1))
+  fi
+}
+
 bash "$REPO_DIR/scripts/bridge.sh" add-host --host muse --port 2222 --label "Muse chinh" >/dev/null
 bash "$REPO_DIR/scripts/bridge.sh" add-host --host muse2 --port 2223 --label "Muse thu 2" >/dev/null
 
@@ -89,6 +99,36 @@ ok "bridge.py --host muse2 dung config dung" grep -q "HOST_ID=muse2" <<<"$out"
 echo "== 6. tin nhan gan nhan host"
 out="$(python3 "$REPO_DIR/bridge/bridge.py" --host muse2 send --type NOTE --subject "test" --body "x" 2>&1)"
 ok "tin nhan gan host" grep -q "host=muse2\|to=muse" <<<"$out"
+
+echo "== 7. set-port: doi port ma KHONG ghi lai card"
+# add-host ghi lai card tu dau -> mat 'thread' va reset profile ve Default.
+# set-port chi sua config + card.tunnel_port + ssh alias.
+python3 - "$MUSE_BRIDGE_REPO_HOSTS/muse2.json" <<'PY0'
+import json, sys
+p = sys.argv[1]
+c = json.load(open(p))
+c["thread"] = "https://muse.ai/t/abc123"
+c["web_profile_dir"] = "Profile 2"
+json.dump(c, open(p, "w"), indent=2)
+PY0
+bash "$REPO_DIR/scripts/bridge.sh" set-port --host muse2 --port 2299 >/dev/null
+code=0
+python3 - "$MUSE_BRIDGE_STATE" "$MUSE_BRIDGE_REPO_HOSTS/muse2.json" <<'PY' || code=$?
+import json, os, sys
+state, card_path = sys.argv[1], sys.argv[2]
+cfg = json.load(open(os.path.join(state, "hosts", "muse2.json")))
+assert cfg["peer"]["port"] == 2299, cfg["peer"]["port"]
+card = json.load(open(card_path))
+assert card["tunnel_port"] == 2299, card
+# truong quan trong phai con nguyen
+assert card["thread"] == "https://muse.ai/t/abc123", card
+assert card["web_profile_dir"] == "Profile 2", card
+PY
+rc "config+card doi port, giu thread va profile" "$code"
+ok "ssh alias doi theo port moi" bash -c 'grep -A3 "^Host muse2$" "$1" | grep -q "Port 2299"' _ "$HOME/.ssh/config"
+ok "bus doc port moi" bash -c 'python3 "$1/bridge/bridge.py" --host muse2 status 2>&1 | grep -q "PEER=.*:2299"' _ "$REPO_DIR"
+out="$(bash "$REPO_DIR/scripts/bridge.sh" set-port --host muse2 2>&1)"; rc_nonzero "thieu --port -> exit khac 0" "$?"
+out="$(bash "$REPO_DIR/scripts/bridge.sh" set-port --host khong-co --port 2299 2>&1)"; rc_nonzero "host khong ton tai -> exit khac 0" "$?"
 
 echo
 if [ "$fails" = "0" ]; then echo "HOSTS_TEST: PASS"; else echo "HOSTS_TEST: FAIL ($fails)"; fi

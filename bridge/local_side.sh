@@ -319,6 +319,35 @@ EOF
   say "the tin rao repo (khong push): $(host_card "$id")"
 }
 
+# ------------------------------------------------------------------ set-port
+# Doi port cua host DA dang ky. KHONG dung add-host de lam viec nay: add-host
+# ghi lai card tu dau -> mat field 'thread' (auto-repair), reset
+# 'web_profile_dir' ve Default. set-port chi sua 3 cho: config (peer.port),
+# card (tunnel_port) va khoi ssh alias.
+cmd_set_port() {
+  parse_flags "$@"
+  require_host
+  local port="$PORT"
+  [ -n "$port" ] || die "usage: set-port --host <id> --port <port>"
+  case "$port" in
+    ''|*[!0-9]*) die "port phai la so: '$port'" ;;
+  esac
+  local cfg; cfg="$(host_config "$HOST")"
+  python3 - "$cfg" "$port" <<'PY'
+import json, sys
+path, port = sys.argv[1], int(sys.argv[2])
+with open(path) as fh:
+    cfg = json.load(fh)
+cfg.setdefault("peer", {})["port"] = port
+with open(path, "w") as fh:
+    json.dump(cfg, fh, indent=2)
+PY
+  # card: giu nguyen cac truong khac (thread, web_profile_dir, web_cdp_port...)
+  python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" >/dev/null 2>&1 || true
+  write_ssh_alias "$HOST" "$port"
+  say "host '$HOST': port -> $port (config + card + ssh alias da dong bo)"
+}
+
 
 # ------------------------------------------------------------------ provision Muse
 muse_provision() {
@@ -1155,6 +1184,7 @@ case "${1:-}" in
   doctor)    shift; cmd_doctor "$@" ;;
   release)   shift; cmd_release "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
+  set-port)  shift; cmd_set_port "$@" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
   repair)   shift; cmd_repair "$@" ;;
@@ -1163,5 +1193,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|daemon|prompt|oneshot|push|hosts|add-host|authorize|onboard|doctor|release}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|oneshot|push|hosts|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
 esac

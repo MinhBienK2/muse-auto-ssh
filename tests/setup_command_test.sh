@@ -44,6 +44,10 @@ ok "co allowed-tools"                has "$CMD" "allowed-tools:"
 ok "allowed-tools co AskUserQuestion (phai hoi duoc user)" \
   has_re "$CMD" '^allowed-tools:.*AskUserQuestion'
 
+# Repo chi con 1 skill: setup-ssh-muse (muse-oneshot da bi xoa).
+skills="$(ls -1 "$REPO_DIR/.claude/skills" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+ok "chi con 1 skill trong .claude/skills (hien tai: $skills)" test "$skills" = "setup-ssh-muse"
+
 echo "== 2. co du 7 chang A..G"
 for c in "Chặng A" "Chặng B" "Chặng C" "Chặng D" "Chặng E" "Chặng F" "Chặng G"; do
   ok "co $c" has "$CMD" "$c"

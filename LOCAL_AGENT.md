@@ -68,9 +68,10 @@ bash scripts/bridge.sh oneshot --host <id>                  # render .muse-hosts
 bash scripts/bridge.sh oneshot --host <id> --send           # tự dán vào chat Muse qua driver web
 ```
 
-Quy trình đầy đủ (arm → add-host → oneshot → chờ tunnel → push → verify) nằm trong skill
-[`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md) — đọc file đó rồi
-làm theo, đừng tự chế lệnh.
+Quy trình đầy đủ (hỏi user → arm → add-host → oneshot → chờ paste status block → provision →
+verify) nằm trong skill
+[`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) — đọc file đó
+rồi làm theo, đừng tự chế lệnh.
 
 ### 3.1. Zero-touch (không cần người dùng copy/paste)
 

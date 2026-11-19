@@ -1,6 +1,6 @@
 ---
 name: setup-ssh-muse
-description: Kết nối 1 máy Muse MỚI — hỏi vài câu, sinh setup_prompt.md để dán sang máy Muse, chờ paste output của Muse rồi hoàn tất (sau đó `ssh <alias>` là vào được). Dùng khi người dùng gõ /setup-ssh-muse, "setup ssh muse", "kết nối máy Muse mới", "nối máy muse", "onboard máy Muse mới", hoặc muốn agent tự setup 2 chiều với 1 container Muse mới.
+description: Kết nối 1 máy Muse MỚI — hỏi vài câu, sinh setup_prompt.md để dán sang máy Muse, chờ paste output của Muse rồi hoàn tất (sau đó `ssh <alias>` là vào được). Dùng khi người dùng gõ /setup-ssh-muse, "setup ssh muse", "kết nối máy Muse mới", "nối máy muse", "onboard máy Muse mới", "dán prompt vào Muse", "prompt một lần là xong", one-shot prompt, hoặc muốn agent tự setup 2 chiều với 1 container Muse mới.
 argument-hint: "[ten-ssh] [--resume <alias>]"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
@@ -17,8 +17,8 @@ Bạn là **Agent Ngoài** (hợp đồng ở `LOCAL_AGENT.md`). Nhiệm vụ c�
 
 Gợi ý tên SSH do user gõ: `$ARGUMENTS` (rỗng = tự đặt).
 
-> Tham chiếu: đọc `.claude/skills/muse-oneshot/SKILL.md` (quy trình agent) và
-> `LOCAL_AGENT.md` §3.0 trước khi làm. Không tự chế lệnh ngoài những lệnh repo có sẵn.
+> Tham chiếu: đọc `AGENTS.md` + `LOCAL_AGENT.md` §3.0 trước khi làm. Không tự chế lệnh ngoài
+> những lệnh repo có sẵn.
 
 ---
 
@@ -26,7 +26,7 @@ Gợi ý tên SSH do user gõ: `$ARGUMENTS` (rỗng = tự đặt).
 
 1. Xác định thư mục repo: thư mục chứa `scripts/bridge.sh`. Nếu không có `.git` → báo user
    và dừng.
-2. Đọc `AGENTS.md` + `.claude/skills/muse-oneshot/SKILL.md`.
+2. Đọc `AGENTS.md` + `LOCAL_AGENT.md` §3.0.
 3. Kiểm tra bản one-shot có trong repo:
    ```bash
    ls templates/MUSE_ONESHOT.template.md bridge/ts-connect-proxy.py
@@ -98,6 +98,10 @@ cp .muse-hosts/<alias>/MUSE_ONESHOT.md setup_prompt.md
   `grep -c "{{" setup_prompt.md` phải bằng 0 (không còn placeholder).
 - In ra: đường dẫn tuyệt đối + kích thước.
 - Cập nhật `setup_state.json`: `phase=prompt_ready`, `prompt_path=<đường dẫn tuyệt đối>`.
+- **Cách khác** (tuỳ chọn, chỉ khi user muốn): `bash scripts/bridge.sh oneshot --host <alias>
+  --send` tự dán prompt vào chat Muse qua driver web và chờ status block (tối đa ~10 phút,
+  có thể treo). Nếu nền tảng hiện hộp **"Approval required"** → báo user bấm **Allow**; không
+  bấm được thì nói rõ, đừng giả vờ xong. Mặc định vẫn là user tự dán (bước 1–2 ở Chặng E).
 
 ## Chặng E — Bàn giao và **DỪNG**
 
@@ -140,6 +144,10 @@ thường). Lưu nguyên block vào `setup_state.json` (`muse_output`).
    ```bash
    bash scripts/bridge.sh provision --host <alias>
    ```
+   Nếu Muse **đã tự** kéo bundle và dựng tunnel thì `provision` chỉ chạy lại cho idempotent.
+   Nếu Muse **chưa** kéo được bundle (Bước 4 của prompt lỗi) → `provision` là đường dự phòng:
+   nó đẩy bus + watchdog + loop tunnel + deb cache xuống container, chạy `muse_side.sh setup`
+   và authorize public key của container (để bus chạy được chiều Muse → máy tôi).
 5. Chờ kênh sống — poll mỗi 10 s, tối đa ~10 phút:
    ```bash
    bash scripts/bridge.sh status --host <alias>     # cần PEER_STATE=OK

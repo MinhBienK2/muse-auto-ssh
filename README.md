@@ -106,8 +106,8 @@ Dán nguyên file vào chat **mới** của Agent Muse → Muse tự: cài key �
 **tự kéo bundle** từ máy bạn qua SSH → dựng tunnel + systemd `Restart=always` + watchdog 15s →
 tự kiểm tra → báo status block. Không cần trả lời câu hỏi nào của nó.
 
-> Agent làm việc theo skill [`.claude/skills/muse-oneshot/SKILL.md`](.claude/skills/muse-oneshot/SKILL.md)
-> (đọc file đó để có đủ quy trình: arm → add-host → oneshot → chờ tunnel → push → verify).
+> Agent làm việc theo skill [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md)
+> (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` → chờ bạn paste status block → hoàn tất).
 
 > **Vì sao prompt ngắn?** Bộ lọc an toàn của nền tảng Muse đã từ chối chạy "khối script lớn" dán vào
 > chat (05/11, 06/11) và Agent Muse yêu cầu người dùng nói từng bước bằng lời của họ. Vì vậy
@@ -237,7 +237,6 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── MUSE_PROMPT.template.md  # ⭐ template của prompt (4 bước bằng lời, KHÔNG chứa mã)
 │   └── MUSE_ONESHOT.template.md # ⭐ template của prompt "một lần" (đầy đủ thông số, 7 bước)
 ├── .claude/skills/
-│   ├── muse-oneshot/SKILL.md    # ⭐ skill: kết nối máy Muse mới bằng 1 lần dán prompt
 │   └── setup-ssh-muse/SKILL.md  # ⭐ skill /setup-ssh-muse: hỏi → sinh setup_prompt.md → chờ paste → xong
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
@@ -311,8 +310,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 
 Mọi lệnh bus nhận `--host <id>` (bỏ trống → host mặc định).
 
-Ngoài các lệnh trên, Claude Code có sẵn 2 skill trong repo:
-`.claude/skills/muse-oneshot/SKILL.md` (dán 1 lần là xong) và
+Ngoài các lệnh trên, Claude Code có sẵn 1 skill trong repo:
 `.claude/skills/setup-ssh-muse/SKILL.md` (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` →
 chờ bạn paste status block → hoàn tất, xem Bước 2'').
 

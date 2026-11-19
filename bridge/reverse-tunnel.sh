@@ -31,7 +31,7 @@ LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 # tro sang noi khac khi can (test cung dung bien nay).
 SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v8"
+LOOP_VERSION="v9"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
@@ -52,6 +52,47 @@ ensure_authorized_keys() {
     chmod 600 "$ak" 2>/dev/null || true
     log "da khoi phuc authorized_keys tu seed ben vung"
   fi
+}
+
+ensure_sshd_config() {
+  # Platform Hatch co the XOA hoac GHI DE /etc/ssh/sshd_config trong container.
+  # sshd khong start duoc -> hook lap lai "sshd khong tra loi banner" -> platform danh
+  # cell "sshd_config_invalid" + "sshd_banner_failed" -> flapping_backoff -> cell bi
+  # refresh (mat mot vong). Ban config TOT nhat duoc giu o vung ben vung de khoi phuc.
+  local cfg="/etc/ssh/sshd_config"
+  local seed="/home/hatch/.muse-bridge/sshd_config"
+  if [ -f "$cfg" ] && "$SSHD_BIN" -t >/dev/null 2>&1; then
+    # config hop le -> luu ban tot vao vung ben vung (neu moi nhat hoac khac ban cu)
+    if [ ! -f "$seed" ] || ! cmp -s "$cfg" "$seed"; then
+      mkdir -p "$(dirname "$seed")" 2>/dev/null || true
+      cp -f "$cfg" "$seed" 2>/dev/null || true
+    fi
+    return 0
+  fi
+  if [ -f "$seed" ]; then
+    mkdir -p /etc/ssh 2>/dev/null || true
+    cp -f "$seed" "$cfg" 2>/dev/null || true
+    log "sshd_config khong hop le -> da khoi phuc tu seed ben vung"
+    "$SSHD_BIN" -t >/dev/null 2>&1 && return 0
+  fi
+  # Het duong lui -> viet config toi thieu (sshd dang chet, giu config lai hon)
+  mkdir -p /etc/ssh 2>/dev/null || true
+  cat > "$cfg" <<'SSHD_CONFIG_EOF'
+# Config toi thieu cho bridge - chi dung khi config cu khong hop le / bi xoa.
+Port 22
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+StrictModes yes
+X11Forwarding no
+PrintMotd no
+Subsystem sftp /usr/lib/openssh/sftp-server
+SSHD_CONFIG_EOF
+  mkdir -p "$(dirname "$seed")" 2>/dev/null || true
+  cp -f "$cfg" "$seed" 2>/dev/null || true
+  log "sshd_config khong hop le -> da viet config toi thieu moi"
 }
 
 ensure_sshd() {
@@ -94,6 +135,8 @@ ensure_sshd() {
     cp -f /etc/ssh/ssh_host_* "$host_key_seed/" 2>/dev/null || true
     chmod 700 "$host_key_seed" 2>/dev/null || true
   fi
+
+  ensure_sshd_config
 
   if [ -x "$SSHD_BIN" ]; then
     if ! pgrep -x sshd >/dev/null 2>&1; then

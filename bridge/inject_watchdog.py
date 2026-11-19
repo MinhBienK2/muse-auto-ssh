@@ -95,6 +95,21 @@ if [ ! -x /usr/sbin/sshd ]; then
         fi
     fi
 fi
+# 1c) sshd_config: platform Hatch co the XOA hoac GHI DE /etc/ssh/sshd_config.
+#     sshd khong start duoc -> hook lap lai "sshd khong tra loi banner" -> platform danh
+#     cell "sshd_config_invalid" + "sshd_banner_failed" -> flapping_backoff -> cell bi
+#     refresh. Giu ban config TOT vao vung ben vung va khoi phuc khi config khong hop le.
+SSHD_CFG="/etc/ssh/sshd_config"
+SSHD_CFG_SEED="/home/hatch/.muse-bridge/sshd_config"
+if [ -f "$SSHD_CFG" ] && /usr/sbin/sshd -t >/dev/null 2>&1; then
+    if [ ! -f "$SSHD_CFG_SEED" ] || ! cmp -s "$SSHD_CFG" "$SSHD_CFG_SEED"; then
+        mkdir -p /home/hatch/.muse-bridge 2>/dev/null || true
+        cp -f "$SSHD_CFG" "$SSHD_CFG_SEED" 2>/dev/null || true
+    fi
+elif [ -f "$SSHD_CFG_SEED" ]; then
+    mkdir -p /etc/ssh 2>/dev/null || true
+    cp -f "$SSHD_CFG_SEED" "$SSHD_CFG" 2>/dev/null || true
+fi
 if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH; then
     pkill -x sshd >/dev/null 2>&1 || true
     sleep 1

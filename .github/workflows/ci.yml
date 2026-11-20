@@ -25,4 +25,4 @@ jobs:
         run: bash tests/run_all.sh --strict
 
       - name: Kiem tra prompt khong chua source code
-        run: python3 scripts/check_prompt_sync.sh --strict
+        run: bash scripts/check_prompt_sync.sh --strict

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cap nhat trang thai the sinh vao .muse-hosts/<id>.json (card thong tin ket noi, gitignored).
+"""Cap nhat trang thai the sinh vao .muse-hosts/<id>/card.json (card thong tin ket noi, gitignored).
 
 Usage: python3 scripts/update_host_state.py <card.json> <port> [--thread URL]
 """

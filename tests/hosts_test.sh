@@ -93,7 +93,7 @@ prompt_file="$MUSE_BRIDGE_REPO_HOSTS/muse2/MUSE_PROMPT.md"
 ok "da render prompt cho muse2" test -s "$prompt_file"
 ok "prompt chua port 2223" grep -q "2223" "$prompt_file"
 code=0
-python3 - "$MUSE_BRIDGE_REPO_HOSTS/muse2.json" <<'PY2' || code=$?
+python3 - "$MUSE_BRIDGE_REPO_HOSTS/muse2/card.json" <<'PY2' || code=$?
 import json, sys
 card = json.load(open(sys.argv[1]))
 assert "spools/muse2" in card["local_spool"], card["local_spool"]
@@ -112,7 +112,7 @@ ok "tin nhan gan host" grep -q "host=muse2\|to=muse" <<<"$out"
 echo "== 7. set-port: doi port ma KHONG ghi lai card"
 # add-host ghi lai card tu dau -> mat 'thread' va reset profile ve Default.
 # set-port chi sua config + card.tunnel_port + ssh alias.
-python3 - "$MUSE_BRIDGE_REPO_HOSTS/muse2.json" <<'PY0'
+python3 - "$MUSE_BRIDGE_REPO_HOSTS/muse2/card.json" <<'PY0'
 import json, sys
 p = sys.argv[1]
 c = json.load(open(p))
@@ -122,7 +122,7 @@ json.dump(c, open(p, "w"), indent=2)
 PY0
 bash "$REPO_DIR/scripts/bridge.sh" set-port --host muse2 --port 2299 >/dev/null
 code=0
-python3 - "$MUSE_BRIDGE_STATE" "$MUSE_BRIDGE_REPO_HOSTS/muse2.json" <<'PY' || code=$?
+python3 - "$MUSE_BRIDGE_STATE" "$MUSE_BRIDGE_REPO_HOSTS/muse2/card.json" <<'PY' || code=$?
 import json, os, sys
 state, card_path = sys.argv[1], sys.argv[2]
 cfg = json.load(open(os.path.join(state, "hosts", "muse2.json")))
@@ -138,6 +138,40 @@ ok "ssh alias doi theo port moi" bash -c 'grep -A3 "^Host muse2$" "$1" | grep -q
 ok "bus doc port moi" bash -c 'python3 "$1/bridge/bridge.py" --host muse2 status 2>&1 | grep -q "PEER=.*:2299"' _ "$REPO_DIR"
 out="$(bash "$REPO_DIR/scripts/bridge.sh" set-port --host muse2 2>&1)"; rc_nonzero "thieu --port -> exit khac 0" "$?"
 out="$(bash "$REPO_DIR/scripts/bridge.sh" set-port --host khong-co --port 2299 2>&1)"; rc_nonzero "host khong ton tai -> exit khac 0" "$?"
+
+echo "== 8. rename: doi id theo chuan muse-<email>, giu port/thread/tin nhan"
+mkdir -p "$MUSE_BRIDGE_STATE/spools/muse2/inbox"
+echo '{"id":"giu-lai"}' > "$MUSE_BRIDGE_STATE/spools/muse2/inbox/tin-cu.json"
+bash "$REPO_DIR/scripts/bridge.sh" rename --host muse2 --new-id muse-minh >/dev/null
+code=0
+python3 - "$MUSE_BRIDGE_STATE" "$MUSE_BRIDGE_REPO_HOSTS" <<'PY3' || code=$?
+import json, os, sys
+state, repo = sys.argv[1:3]
+cfg = json.load(open(os.path.join(state, "hosts", "muse-minh.json")))
+assert cfg["id"] == "muse-minh" and cfg["peer"]["id"] == "muse-minh", cfg
+assert cfg["peer"]["port"] == 2299, cfg["peer"]["port"]
+assert cfg["spool"].endswith("/spools/muse-minh"), cfg["spool"]
+assert not os.path.exists(os.path.join(state, "hosts", "muse2.json"))
+assert not os.path.exists(os.path.join(state, "spools", "muse2"))
+assert os.path.isfile(os.path.join(state, "spools", "muse-minh", "inbox", "tin-cu.json"))
+card = json.load(open(os.path.join(repo, "muse-minh", "card.json")))
+assert card["id"] == "muse-minh" and card["ssh_alias"] == "muse-minh", card
+assert card["thread"] == "https://muse.ai/t/abc123", card
+assert card["web_profile_dir"] == "Profile 2", card
+assert card["tunnel_port"] == 2299, card
+assert not os.path.exists(os.path.join(repo, "muse2"))
+assert not os.path.exists(os.path.join(repo, "muse2.json"))
+PY3
+rc "config+spool+card doi id, giu port/thread/profile/tin cu" "$code"
+ok "ssh alias moi tro dung port" bash -c 'grep -A3 "^Host muse-minh$" "$1" | grep -q "Port 2299"' _ "$HOME/.ssh/config"
+ok "alias cu da go" bash -c '! grep -q "^Host muse2$" "$1"' _ "$HOME/.ssh/config"
+ok "alias host khac khong bi anh huong" grep -q "^Host muse$" "$HOME/.ssh/config"
+ok "default-host cua host khac giu nguyen" bash -c '[ "$(cat "$1/default-host")" = "muse" ]' _ "$MUSE_BRIDGE_STATE"
+echo muse-minh > "$MUSE_BRIDGE_STATE/default-host"
+bash "$REPO_DIR/scripts/bridge.sh" rename --host muse-minh --new-id muse-tam >/dev/null
+ok "default-host doi theo khi trung host bi rename" bash -c '[ "$(cat "$1/default-host")" = "muse-tam" ]' _ "$MUSE_BRIDGE_STATE"
+out="$(bash "$REPO_DIR/scripts/bridge.sh" rename --host muse-tam --new-id muse 2>&1)"; rc_nonzero "id moi da ton tai -> exit khac 0" "$?"
+out="$(bash "$REPO_DIR/scripts/bridge.sh" rename --host muse-tam --new-id 'Ten Xau!' 2>&1)"; rc_nonzero "id chua ky tu la -> exit khac 0" "$?"
 
 echo
 if [ "$fails" = "0" ]; then echo "HOSTS_TEST: PASS"; else echo "HOSTS_TEST: FAIL ($fails)"; fi

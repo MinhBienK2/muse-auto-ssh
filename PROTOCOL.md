@@ -40,7 +40,7 @@ Một máy cá nhân có thể chạy **nhiều máy Muse** cùng lúc. Mỗi ho
 | Spool phía Muse | `/root/.muse-bridge/` (mỗi container một bản) | — |
 | Chrome profile (account Muse) | `--profile-dir` lúc `add-host` | `Profile 2` |
 | CDP port + clone dir của driver web | `web_cdp_port` / `web_clone_dir` trong thẻ | `9230` / `/tmp/muse-chrome-profile-muse2` |
-| Thẻ thông tin kết nối | `.muse-hosts/<id>.json` **trong repo, gitignored** | không push lên git |
+| Thẻ thông tin kết nối | `.muse-hosts/<id>/card.json` **trong repo, gitignored** (mọi thứ của host nằm trong folder của nó) | không push lên git |
 
 Runtime config: `~/.muse-bridge/hosts/<id>.json` (schema giống nhau, mỗi host một file).
 Mọi lệnh của bus nhận `--host <id>`; tin nhắn có trường `host` để biết tin đó đến từ Muse nào.

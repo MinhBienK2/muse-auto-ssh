@@ -289,6 +289,9 @@ Nếu user gọi `/setup-ssh-muse --resume <alias>`: đọc `.muse-hosts/<alias>
 
 - **Không hard-code** IP / user / pubkey / cổng / path của máy này — để script tự dò.
 - **Đổi port = `bridge.sh set-port`**, không phải chạy lại `add-host` (xem Chặng F).
+- **Đổi tên host = `bridge.sh rename --host <id-cũ> --new-id <id-mới>`** — dời cả config, spool
+  (tin nhắn giữ nguyên), folder `.muse-hosts/<id>/`, ssh alias; port không đổi, container không
+  cần sửa gì (bus định tuyến theo role).
 - **Sửa prompt = sửa template** `reference/MUSE_PROMPT.template.md` (trong skill này) rồi
   render lại; file đã render (`MUSE_PROMPT.md`, `setup_prompt.md`) là artifact, gitignore,
   không commit.

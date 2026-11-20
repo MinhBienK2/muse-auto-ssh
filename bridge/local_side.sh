@@ -42,7 +42,7 @@ HOST=""
 PORT=""
 LABEL=""
 KEY=""
-PROFILE_DIR=""
+NEW_ID=""
 JSON=""
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-600}"
 MUSE_WEB_ARGS=()
@@ -56,6 +56,7 @@ parse_flags() {
       --port)    PORT="$2"; shift 2 ;;
       --label)   LABEL="$2"; shift 2 ;;
       --key)     KEY="$2"; shift 2 ;;
+      --new-id)  NEW_ID="$2"; shift 2 ;;
       --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
       --json)    JSON="1"; shift ;;
       --timeout) WAIT_TIMEOUT="$2"; shift 2 ;;
@@ -65,7 +66,7 @@ parse_flags() {
 }
 
 host_config() { echo "$HOSTS_DIR/$1.json"; }
-host_card()   { echo "$REPO_HOSTS_DIR/$1.json"; }
+host_card()   { echo "$REPO_HOSTS_DIR/$1/card.json"; }
 
 # ------------------------------------------------------------------ ssh helpers
 ssh_host() {
@@ -353,6 +354,95 @@ PY
   python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" >/dev/null 2>&1 || true
   write_ssh_alias "$HOST" "$port"
   say "host '$HOST': port -> $port (config + card + ssh alias da dong bo)"
+}
+
+# ------------------------------------------------------------------ rename-host
+# Doi id host theo chuan muse-<local-part email>. Chi sua phia may nay:
+# config + spool + card folder + ssh alias + default-host. Bus dinh tuyen theo
+# role ("local"/"muse") nen container KHONG can doi gi; port giu nguyen.
+cmd_rename() {
+  parse_flags "$@"
+  require_host
+  local new="$NEW_ID"
+  [ -n "$new" ] || die "usage: rename --host <id-cu> --new-id <id-moi>"
+  case "$new" in
+    *[!a-z0-9-]*|'') die "id moi chi gom [a-z0-9-]: '$new'" ;;
+  esac
+  [ "$new" != "$HOST" ] || { say "id khong doi"; return 0; }
+  [ ! -f "$(host_config "$new")" ] || die "host '$new' da ton tai"
+  [ -f "$(host_config "$HOST")" ] || die "khong thay config host '$HOST'"
+
+  # spool (tin nhan cu giu nguyen)
+  local old_spool new_spool
+  old_spool="$(host_field "$HOST" spool)"
+  new_spool="$SPOOLS_DIR/$new"
+  if [ -n "$old_spool" ] && [ -d "$old_spool" ] && [ ! -e "$new_spool" ]; then
+    mv "$old_spool" "$new_spool"
+  fi
+  mkdir -p "$new_spool"/{inbox,outbox,pending,read,logs}
+
+  # config: id + peer.id + duong dan spool
+  python3 - "$(host_config "$HOST")" "$(host_config "$new")" "$new" "$new_spool" <<'PY'
+import json, sys
+src, dst, new, spool = sys.argv[1:5]
+cfg = json.load(open(src))
+cfg["id"] = new
+cfg["spool"] = spool
+cfg.setdefault("peer", {})["id"] = new
+json.dump(cfg, open(dst, "w"), indent=2)
+PY
+  rm -f "$(host_config "$HOST")"
+
+  # card: doi ca folder .muse-hosts/<id>/ (prompt, log, setup_state)
+  local old_dir="$REPO_HOSTS_DIR/$HOST" new_dir="$REPO_HOSTS_DIR/$new"
+  mkdir -p "$REPO_HOSTS_DIR"
+  if [ -d "$old_dir" ] && [ ! -e "$new_dir" ]; then mv "$old_dir" "$new_dir"; fi
+  mkdir -p "$new_dir"
+  # card cu co the nam o .muse-hosts/<id>.json (layout cu) - gom vao folder
+  local card; card="$(host_card "$new")"
+  if [ ! -f "$card" ] && [ -f "$REPO_HOSTS_DIR/$HOST.json" ]; then
+    mv "$REPO_HOSTS_DIR/$HOST.json" "$card"
+  fi
+  if [ -f "$card" ]; then
+    python3 - "$card" "$new" "$new_spool" "$new_dir" <<'PY'
+import json, sys
+path, new, spool, new_dir = sys.argv[1:5]
+card = json.load(open(path))
+card["id"] = new
+card["ssh_alias"] = new
+card["local_spool"] = spool
+if card.get("web_clone_dir"):
+    card["web_clone_dir"] = "/tmp/muse-chrome-profile-" + new
+json.dump(card, open(path, "w"), indent=2)
+st = new_dir + "/setup_state.json"
+try:
+    s = json.load(open(st))
+except Exception:
+    s = None
+if isinstance(s, dict):
+    s["alias"] = new
+    json.dump(s, open(st, "w"), indent=2)
+PY
+  fi
+  rm -f "$REPO_HOSTS_DIR/$HOST.json"
+
+  # ssh alias: them khoi moi, go khoi cu (khong de alias mo coi)
+  local port; port="$(host_peer_port "$new")"
+  write_ssh_alias "$new" "$port"
+  python3 - "$HOME/.ssh/config" "$HOST" <<'PY'
+import re, sys
+path, host = sys.argv[1:3]
+text = open(path).read()
+text = re.sub(r"(?ms)^# Muse Reverse SSH Tunnel - %s\nHost %s\n.*?(?=^Host |^# |\Z)" % (re.escape(host), re.escape(host)), "", text)
+text = re.sub(r"(?ms)^Host %s\n.*?(?=^Host |^# |\Z)" % re.escape(host), "", text)
+open(path, "w").write(text)
+PY
+
+  if [ -f "$STATE_DIR/default-host" ] && [ "$(cat "$STATE_DIR/default-host")" = "$HOST" ]; then
+    echo "$new" > "$STATE_DIR/default-host"
+  fi
+  say "da doi ten host '$HOST' -> '$new' (config + spool + card + ssh alias; port $port giu nguyen)"
+  say "Ten node Tailscale: dat theo id moi khi provision (best-effort, can CLI trong container)"
 }
 
 
@@ -1179,6 +1269,7 @@ case "${1:-}" in
   release)   shift; cmd_release "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   set-port)  shift; cmd_set_port "$@" ;;
+  rename)    shift; cmd_rename "$@" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
   repair)   shift; cmd_repair "$@" ;;
@@ -1191,5 +1282,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|rename|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
 esac

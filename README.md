@@ -233,7 +233,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── chrome_profiles.py       # liệt kê Chrome profile + profile nào còn đăng nhập muse.ai
 │   ├── install_tofu_hook.sh     # cài TOFU hook (sudo, 1 lần)
 │   ├── install_sshd_keepalive.sh # sshd tự đóng session treo (sudo, 1 lần)
-│   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>.json
+│   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>/card.json
 │   ├── check_prompt_sync.sh     # kiểm tra template + MUSE_PROMPT.md còn đồng bộ
 │   └── check_hygiene.sh         # quét IP/email/path riêng của máy + TODO/stub
 ├── .agents/                      # ⭐ nguồn thật của mọi skill (trung cho MỌI agent tool)
@@ -296,6 +296,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh profiles` | Liệt kê Chrome profile + profile nào còn đăng nhập muse.ai (tên, email, host đang dùng) |
 | `bash scripts/bridge.sh add-host --host <id>` | Đăng ký Muse host mới (port, ssh alias, spool) |
 | `bash scripts/bridge.sh set-port --host <id> --port <p>` | Đổi port host đã đăng ký (config + card + ssh alias), **không** ghi lại card |
+| `bash scripts/bridge.sh rename --host <id> --new-id <id-moi>` | Đổi tên host theo chuẩn `muse-<local-part email>` (config + spool + folder card + ssh alias; port và tin nhắn giữ nguyên) |
 | `bash scripts/bridge.sh add-host --host <id> --profile-dir "Profile 2"` | Như trên, nhưng host dùng Chrome profile (account) khác `Default` |
 | `bash scripts/bridge.sh arm` | Chuẩn bị máy (idempotent) |
 | `bash scripts/bridge.sh onboard --host <id>` | Zero-touch: tự dán prompt vào web Muse + chờ kênh thông |
@@ -380,4 +381,4 @@ tức là kiểm tra **không phụ thuộc máy đang chạy**, nên phải xan
 5. **Bất biến rõ ràng.** Không dùng "magic file" markdown (`OUTER_TASKS.md`) — mọi trao đổi là
    message JSON có `id`, `type`, `reply_to`.
 6. **Chạy được ở máy khác.** Không hard-code IP/user/path của một máy cụ thể; mọi thứ lấy từ
-   runtime config (`tunnel-<port>.conf`, `.muse-hosts/<id>.json`) hoặc auto-detect.
+   runtime config (`tunnel-<port>.conf`, `.muse-hosts/<id>/card.json`) hoặc auto-detect.

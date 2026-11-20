@@ -318,6 +318,15 @@ def open_muse(cdp: CDP, url: str, thread: str | None, new_chat: bool) -> str:
         if state in ("interactive", "complete"):
             break
     time.sleep(2)
+    # SPA doi URL ngay nhung thread moi render cham (vai giay) - doi composer
+    # san sang roi them nhip nua, tranh dan nham vao khung thread cu.
+    for _ in range(20):
+        if cdp.evaluate(
+            "(() => !!document.querySelector(%s))()" % json.dumps(COMPOSER)
+        ):
+            break
+        time.sleep(0.5)
+    time.sleep(2)
     return cdp.evaluate("location.href") or url
 
 
@@ -557,18 +566,25 @@ def cmd_send(args) -> int:
             time.sleep(2)
         print("SENT=%s" % sent)
         print("THREAD_URL=%s" % (cdp.evaluate("location.href") or ""))
-        # cho den khi co tin nhan tra loi moi cua agent
+        # Cho tra loi MOI that su: so sanh NOI DUNG voi truoc khi gui (dem so
+        # tin de hut khi thread cu render them tin sau khi chuyen trang), va
+        # doi agent xong viec (het trang thai dang chay) moi lay reply.
+        before_set = set(before)
         deadline = time.time() + args.timeout
-        replies = []
+        replies = list(before)
+        newest = ""
+        fresh = []
         while time.time() < deadline:
             approve(cdp, args.approve_mode, 4)
             replies = assistant_messages(cdp)
-            if len(replies) > len(before):
-                newest = replies[-1]
+            fresh = [r for r in replies if r not in before_set]
+            if fresh:
+                newest = fresh[-1]
                 if not args.wait_for or re.search(args.wait_for, newest):
                     break
             time.sleep(4)
-        text = with_links(cdp, "\n\n".join(replies[-3:]) if replies else conversation_text(cdp))
+        shown = fresh[-3:] if fresh else (replies[-3:] if replies else [])
+        text = with_links(cdp, "\n\n".join(shown) if shown else conversation_text(cdp))
         if args.reply_out:
             with open(args.reply_out, "w", encoding="utf-8") as fh:
                 fh.write(text)

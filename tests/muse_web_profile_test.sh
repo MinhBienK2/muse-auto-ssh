@@ -94,8 +94,8 @@ code=0
 python3 - "$REPO_HOSTS" <<'PY2' || code=$?
 import json, sys
 root = sys.argv[1]
-plain = json.load(open(root + "/plain.json"))
-alt = json.load(open(root + "/alt.json"))
+plain = json.load(open(root + "/plain/card.json"))
+alt = json.load(open(root + "/alt/card.json"))
 assert plain["web_profile_dir"] == "Default", plain
 assert plain["web_cdp_port"] == 9222, plain
 assert alt["web_profile_dir"] == "Profile 2", alt

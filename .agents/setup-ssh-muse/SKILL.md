@@ -108,9 +108,20 @@ status block). Bốn thứ phải có:
 Hỏi bằng `AskUserQuestion` (user trả lời nhanh bằng click), **không** hỏi bằng lời trong chat:
 
 1. **Tên SSH** (alias — sau này user gõ `ssh <alias>`).
-   Mặc định gợi ý: `muse-001`; nếu alias đó đã có trong `~/.ssh/config` thì gợi ý
-   `muse-002`, `muse-003`… (kiểm tra bằng `grep -c "^Host " ~/.ssh/config` và
-   `bash scripts/bridge.sh hosts`).
+   **Gợi ý mặc định đặt theo email của account Muse** (profile sẽ chọn ở câu 3) cho dễ nhận biết:
+   `muse-<local-part>` — ví dụ `phamminhbien@gmail.com` → **`muse-phamminhbien`**.
+   - Local-part: phần trước `@`, chỉ giữ `[a-z0-9-]` (lowercase, ký tự khác bỏ).
+   - Trùng alias đã có (`~/.ssh/config` + `bash scripts/bridge.sh hosts`) → thêm hậu tố
+     `-2`, `-3`… (vd `muse-phamminhbien-2`). Không biết email → fallback `muse-001`, `muse-002`…
+   - Vì câu 1 hỏi trước câu 3: lấy email từ profile **đang đăng nhập Muse, nhiều muse_urls nhất**
+     (`bridge.sh profiles --json`) làm gợi ý; user đổi profile ở câu 3 mà local-part khác →
+     cập nhật lại gợi ý alias (hoặc để user tự gõ qua `Other`).
+   - User muốn tên khác → gõ tay qua mục `Other` của `AskUserQuestion`; alias user gõ là quyết định cuối.
+   - **Tên node Tailscale của container đặt CÙNG alias này** (`tailscale set --hostname=<alias>`,
+     prompt đã ghi sẵn ở Bước 1) → nhìn `tailscale status` là biết node nào của host nào.
+     **Best-effort**: có container tailscale do nền tảng quản lý ngoài sandbox (không có CLI
+     trong container) → không đổi được tên node; khi đó ghi chú "node `muse-N` = host `<alias>`"
+     vào `setup_state.json` để tra cứu, đừng cố cài tailscale vào container.
 2. **Cổng forward**: mặc định để trống → repo tự cấp cổng trống kế tiếp (`2222`, `2223`…).
 3. **Profile Chrome (account Muse của container mới)** — **luôn hỏi**, nhưng lựa chọn phải là
    profile **thật của máy này**, không hard-code `Default`/`Profile 2` (mỗi máy một danh sách

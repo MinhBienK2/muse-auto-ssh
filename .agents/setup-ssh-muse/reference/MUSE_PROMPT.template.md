@@ -96,6 +96,14 @@ cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /
 echo KEY_OK
 ```
 
+Đặt tên node Tailscale của bạn **đúng host id** để chủ máy nhìn `tailscale status` là nhận ra
+(best-effort — lỗi quyền/phiên bản thì bỏ qua, không dừng):
+
+```bash
+command -v tailscale >/dev/null 2>&1 && tailscale set --hostname={{HOST_ID}} 2>/dev/null \
+  || tailscale up --hostname={{HOST_ID}} --accept-routes 2>/dev/null || true
+```
+
 ## Bước 2 — Bảo đảm `sshd` của bạn chạy
 
 Kiểm tra `/usr/sbin/sshd` đã có chưa. **Nếu đã có thì chỉ cần tạo `/run/sshd` (chmod 755) rồi

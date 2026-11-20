@@ -80,9 +80,28 @@ status block). Bốn thứ phải có:
 4. Tailscale: `tailscale ip -4` rỗng → bảo user `sudo tailscale up` + đăng nhập. Có IP → **in IP ra**
    cho user thấy (IP này nằm trong prompt dán sang Muse).
 
-> **Phía container:** cell Muse MỚI cần node Tailscale riêng. Nếu Agent Muse báo "cần duyệt node"
-> kèm link `login.tailscale.com` → bảo user mở link duyệt, rồi chạy lại
-> `bash scripts/bridge.sh provision --host <alias>`.
+> **Phía container — duyệt node Tailscale (bắt buộc hỏi, không tự đi tiếp):** cell Muse MỚI cần
+> node Tailscale riêng. Khi Agent Muse báo "cần duyệt node" (hoặc status block có
+> `MUSE_TUNNEL=DOWN` + lý do chưa join tailnet), làm đúng 4 bước:
+>
+> 1. **Lấy link đầy đủ.** Muse hay thiếu link hoặc web Muse bọc link qua redirect `l.meta.ai`
+>    và cắt token khỏi text hiển thị → nếu text không có URL hoàn chỉnh, trích thẳng `href`
+>    từ DOM thread (driver web/CDP: `document.querySelectorAll('a[href]')`, lọc
+>    `login.tailscale.com`, giải mã tham số `u=` của redirect). Chưa có link → hỏi lại Muse
+>    trong thread, **đừng đưa link cụt cho user**.
+> 2. **Đưa link + nói rõ account duyệt**: node phải join tailnet **của máy này** — account
+>    Tailscale đang chạy trên máy (`tailscale status`, cột user), **không phải** account
+>    muse.ai của profile Chrome (hai thứ độc lập; Muse hay suy đoán nhầm). Mở link bằng
+>    browser thật của user (`xdg-open`), không phải Chrome headless của driver.
+> 3. **DỪNG và hỏi bằng `AskUserQuestion`** — "Đã duyệt node vào tailnet chưa?", 3 lựa chọn:
+>    - **Đã duyệt xong** → xác minh bằng `tailscale status` (node mới xuất hiện, đúng tailnet)
+>      rồi tiếp tục: chờ tunnel tự lên (loop retry 10 s) → `provision` → Chặng F bước 5–7.
+>    - **Chưa được / link lỗi** → hỏi lý do (link hết hạn, sai account, trang lỗi…) → nhờ
+>      Muse lấy link mới trong thread rồi quay lại bước 1.
+>    - **Không duyệt được (lý do khác)** → ghi lý do vào `setup_state.json`, báo user kênh
+>      chưa thể thông, **không tự đoán / không provision mò**.
+> 4. User báo "xong" nhưng `tailscale status` **chưa thấy node** → nói rõ chưa thấy, hỏi lại
+>    (có thể duyệt nhầm account khác) — không tin lời nói, xác minh bằng lệnh.
 
 ## Chặng B — Hỏi user (dùng `AskUserQuestion`, hỏi 1 lần, 3 câu)
 
@@ -241,6 +260,8 @@ thường). Lưu nguyên block vào `setup_state.json` (`muse_output`).
 | "không qua kiểm tra an toàn" / từ chối nội dung | **Đừng dán lại.** Thử lại bằng `--send` (driver web tự dán, đôi khi qua được bộ lọc). Nếu vẫn bị chặn: prompt này **không chứa source code bus** → bộ lọc chỉ chặn vì **quá lớn** → rút gọn template: xoá khối **Bước 5b** (script dựng phòng ~50 dòng) và rút **Bước 4** xuống lệnh `tar` 1 dòng → prompt còn ~13 KB → `bash scripts/bridge.sh prompt --host <alias>` render lại rồi dán lại. Nếu vẫn bị chặn → **báo user**, không tự đoán. |
 | `MUSE_PROBE=FAILED` | `bridge.sh status` + `bridge.sh doctor`; xem log container (`tail -20 <base>/tunnel/tunnel.log`) |
 | `MUSE_TUNNEL=DOWN` | tunnel chưa lên → chờ cell platform tỉnh (thường tự lại trong ~25 phút) rồi `provision` lại |
+| "cần duyệt node" / thiếu link `login.tailscale.com` | Làm đúng quy trình duyệt node ở **Chặng A2** (trích link từ DOM nếu bị cắt → đưa link + account tailnet của máy này → **dừng hỏi `AskUserQuestion`**: đã duyệt / chưa được / lý do khác → xác minh `tailscale status`). Không tự đi tiếp khi chưa duyệt. |
+| `MUSE_TUNNEL=DOWN` + "chưa join tailnet" | Như trên — duyệt node trước, tunnel sẽ tự lên (loop retry 10 s), rồi `provision` |
 | Không có output nào | nhắc user paste **nguyên status block**, hoặc dùng `--send` để tự dán lại |
 | Muốn làm tự động hết (không paste tay) | `bash scripts/bridge.sh onboard --host <alias>` — tự dán prompt qua web, chờ status block, authorize key, provision |
 
@@ -271,4 +292,7 @@ Nếu user gọi `/setup-ssh-muse --resume <alias>`: đọc `.muse-hosts/<alias>
 - **Không kill tunnel**, không `systemctl stop` service của Muse — kênh phải sống mãi.
 - **Không bỏ qua Chặng E**: không tự nhảy sang provision khi user chưa paste output (trừ nhánh
   zero-touch mà user đã chọn ở Chặng E).
+- **Duyệt node Tailscale = điểm dừng bắt buộc**: đưa link đầy đủ + account tailnet của máy này,
+  rồi **hỏi `AskUserQuestion`** (đã duyệt / chưa được / lý do khác) và chờ trả lời; xác minh bằng
+  `tailscale status`, không tin lời nói, không tự provision khi node chưa join (Chặng A2).
 - Hỏi user bằng `AskUserQuestion` (click được), không hỏi bằng lời trong chat.

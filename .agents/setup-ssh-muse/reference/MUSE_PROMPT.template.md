@@ -257,6 +257,10 @@ thì phía tôi không hoàn tất được → in lại đủ 7 dòng.
 
 Kèm 2 dòng kết luận: kênh đã thông chưa, còn cần gì từ tôi (nếu không cần thì ghi `KHONG`).
 
+Nếu node Tailscale của container **chưa được duyệt vào tailnet**: kèm thêm dòng
+`MUSE_APPROVAL_URL=<link đầy đủ https://login.tailscale.com/a/...>` — in **nguyên văn một dòng**,
+không rút gọn, không chỉ ghi tên miền. Link này để người dùng mở và duyệt; thiếu token là vô dụng.
+
 ---
 
 ## Sau khi kênh thông — vòng lặp làm việc (giữ nguyên bus)

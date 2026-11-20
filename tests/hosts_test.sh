@@ -14,6 +14,15 @@ export HOME="$TMP/home"
 mkdir -p "$HOME/.ssh"
 # key gia de render_prompt.py co public key (khong can key that cua may that)
 ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "muse-hosts-test" >/dev/null 2>&1
+# tailscale gia -> may khong cai tailscale (CI runner, may moi) van chay duoc
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/tailscale" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "ip" ]; then echo "100.64.0.1"; exit 0; fi
+exit 1
+EOF
+chmod +x "$TMP/bin/tailscale"
+export PATH="$TMP/bin:$PATH"
 export MUSE_BRIDGE_STATE="$TMP/state"
 export MUSE_BRIDGE_REPO_HOSTS="$TMP/repo-hosts"
 export MUSE_URL="https://muse.ai/"

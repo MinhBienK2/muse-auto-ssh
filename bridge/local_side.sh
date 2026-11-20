@@ -409,7 +409,9 @@ muse_provision() {
 
 # ------------------------------------------------------------------ arm
 detect_ts_ip() {
-  local ip
+  # "local ip" (khong gan gia tri) + set -u -> "$ip" loi "unbound variable" khi
+  # may nay KHONG co tailscale (CI runner, may moi). Phai gan "" de luon an toan.
+  local ip=""
   if command -v tailscale >/dev/null 2>&1; then
     ip="$(tailscale ip -4 2>/dev/null | head -n1)"
   fi
@@ -725,10 +727,12 @@ cmd_prompt() {
   done
   local port; port="$(host_peer_port "$HOST")"
   local spool; spool="$(host_local_spool "$HOST")"
+  local ts_ip; ts_ip="$(detect_ts_ip)"
+  [ -n "$ts_ip" ] || die "khong lay duoc IP Tailscale tren may nay - cai tailscale roi chay 'tailscale up', thu lai"
   local out="$REPO_HOSTS_DIR/$HOST/MUSE_PROMPT.md"
   mkdir -p "$(dirname "$out")"
   python3 "$REPO_DIR/scripts/render_prompt.py" \
-    --host "$(detect_ts_ip)" --port "$port" --spool "$spool" --host-id "$HOST" --out "$out" \
+    --host "$ts_ip" --port "$port" --spool "$spool" --host-id "$HOST" --out "$out" \
     || die "render prompt that bai"
   say "prompt: $out ($(wc -c < "$out") bytes)"
 

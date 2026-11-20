@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # prompt_test.sh - Kiem tra PROMPT DUY NHAT cua repo (nam trong skill
-# setup-ssh-muse/reference/MUSE_PROMPT.template.md).
+# .agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md).
 #
 #   1. Render duoc, khong con placeholder, khong nhung source code bus.
 #   2. Co du 7 buoc + noi dung bat buoc (proxy, keo bundle, systemd, status block).
@@ -57,7 +57,7 @@ rc() {
   fi
 }
 
-TEMPLATE="$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
+TEMPLATE="$REPO_DIR/.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
 PROMPT="$TMP/MUSE_PROMPT.md"
 
 echo "== 1. render prompt"
@@ -135,7 +135,7 @@ ok "file chua host id" grep -q "muse4" "$PROMPT_FILE"
 
 echo "== 7. repo chi con MOT prompt"
 ok "khong con thu muc templates/" bash -c '! test -d "$1/templates"' _ "$REPO_DIR"
-ok "template nam trong skill" test -f "$TEMPLATE"
+ok "template nam trong .agents/" test -f "$TEMPLATE"
 ok "khong con file MUSE_ONESHOT.template.md" \
   bash -c '! find "$1" -name "MUSE_ONESHOT.template.md" -not -path "*/.git/*" | grep -q .' _ "$REPO_DIR"
 ok "khong con lenh 'bridge.sh oneshot'" \

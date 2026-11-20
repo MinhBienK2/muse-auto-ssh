@@ -15,7 +15,7 @@
 #      render lai").
 #
 # Repo co DUNG MOT prompt (template nam trong skill):
-#   .claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md
+#   .agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md
 # ==============================================================================
 set -uo pipefail
 

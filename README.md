@@ -70,7 +70,7 @@ sudo bash scripts/install_sshd_keepalive.sh
 
 ### Bước 2 — kết nối một máy Muse MỚI
 
-Repo có **một prompt duy nhất** (`reference/MUSE_PROMPT.template.md` trong skill): chứa sẵn Tailscale
+Repo có **một prompt duy nhất** (`.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md`): chứa sẵn Tailscale
 IP, user, port, public key, đường dẫn bundle, proxy, key path bền vững + **7 bước** bootstrap +
 hợp đồng **"không hỏi lại, tự đi tiếp, tự báo status block"**. Dán một lần là xong.
 
@@ -104,7 +104,7 @@ Agent sẽ:
 Session bị ngắt giữa chừng thì gọi lại `/setup-ssh-muse --resume <alias>` — trạng thái nằm ở
 `.muse-hosts/<alias>/setup_state.json`.
 
-Skill: [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) ·
+Skill: [`.agents/setup-ssh-muse/SKILL.md`](.agents/setup-ssh-muse/SKILL.md) ·
 test: `tests/setup_command_test.sh`.
 
 **Cách 2 — thủ công**
@@ -227,11 +227,13 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>.json
 │   ├── check_prompt_sync.sh     # kiểm tra template + MUSE_PROMPT.md còn đồng bộ
 │   └── check_hygiene.sh         # quét IP/email/path riêng của máy + TODO/stub
-├── .claude/skills/
+├── .agents/                      # ⭐ nguồn thật của mọi skill (trung cho MỌI agent tool)
 │   └── setup-ssh-muse/
-│       ├── SKILL.md              # ⭐ skill /setup-ssh-muse: hỏi → sinh setup_prompt.md → chờ paste → xong
+│       ├── SKILL.md              # ⭐ skill /setup-ssh-muse: tự cài điều kiện tiên quyết → hỏi → sinh setup_prompt.md → chờ paste → xong
 │       └── reference/
 │           └── MUSE_PROMPT.template.md  # ⭐ PROMPT DUY NHẤT của repo (7 bước, KHÔNG chứa mã bus)
+├── .claude/
+│   └── skills -> ../.agents      # symlink: Claude Code đọc skill từ .agents/ (1 nguồn, không copy)
 ├── tests/
 │   ├── run_all.sh               # ⭐ chạy toàn bộ kiểm tra (không cần mạng)
 │   ├── bus_selftest.sh          # bus hai hướng (dir transport)
@@ -270,7 +272,7 @@ Bảng đối chiếu v1 → v2:
 | `local_finalize_persistence.sh` | `bash scripts/bridge.sh arm` (đã push bundle + cài TOFU) |
 | `outer_bridge.sh` | `bash scripts/bridge.sh status` / `inbox` |
 | `reverse-tunnel-g3.sh` | script loop do `muse_side.sh` sinh ra (`$BASE/tunnel/reverse-tunnel.sh`) |
-| `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh`; prompt nay nằm trong skill (`.claude/skills/setup-ssh-muse/reference/`) |
+| `templates/` | proxy + loop + systemd đã được nhúng thẳng vào `bridge/muse_side.sh`; prompt nay nằm trong skill (`.agents/setup-ssh-muse/reference/`) |
 
 Mailbox kiểu cũ (`~/muse-bridge/MUSE_STATUS.md`, `OUTER_TASKS.md`) **không còn dùng** — trao đổi
 giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCOL.md` mục 5–7.
@@ -304,7 +306,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 Mọi lệnh bus nhận `--host <id>` (bỏ trống → host mặc định).
 
 Ngoài các lệnh trên, Claude Code có sẵn 1 skill trong repo:
-`.claude/skills/setup-ssh-muse/SKILL.md` (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` →
+`.agents/setup-ssh-muse/SKILL.md` (`/setup-ssh-muse` — hỏi → sinh `setup_prompt.md` →
 chờ bạn paste status block → hoàn tất, xem Bước 2'').
 
 Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào thẳng container Muse.
@@ -329,7 +331,7 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |
 | `Permission denied (publickey,password)` khi SSH ra ngoài | `ssh` không tìm thấy private key của container | Thêm `-i /home/hatch/.ssh/id_ed25519` (key không nằm ở `/root/.ssh/`) |
 | Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key gốc nằm ở `/home/hatch/.ssh/authorized_keys` và được **copy** sang `/root/.ssh/authorized_keys` (chmod 600). **Không symlink** — `/home/hatch` group-writable → `sshd` `StrictModes` từ chối key → `Permission denied` |
-| Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
+| Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 | `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
 
 ---

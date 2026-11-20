@@ -1,7 +1,7 @@
 # PROMPT CHO AGENT MUSE — dán nguyên file này vào chat của Agent Muse
 
 > Sinh tự động bởi `scripts/render_prompt.py` từ
-> `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md`.
+> `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md`.
 > **Đây là prompt duy nhất của repo** — mọi thông số của máy tôi đã nằm sẵn trong đây nên
 > **bạn không phải hỏi lại tôi một câu nào**.
 >

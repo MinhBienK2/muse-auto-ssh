@@ -27,6 +27,9 @@ Gợi ý tên SSH do user gõ: `$ARGUMENTS` (rỗng = tự đặt).
 | `SKILL.md` (file này) | **toàn bộ quy trình** agent ngoài làm — 7 chặng A→G |
 | `reference/MUSE_PROMPT.template.md` | **prompt duy nhất** của repo, dán vào chat Muse. Sửa prompt = sửa file này rồi render lại |
 
+> Skill này nằm thật trong `.agents/setup-ssh-muse/`; `.claude/skills` là **symlink → `.agents`** →
+> agent tool khác (Codex, Cursor, OpenCode…) dùng chung được, không phải copy 2 bản.
+>
 > Không tự chế lệnh ngoài những lệnh repo có sẵn. Giao thức bus: `PROTOCOL.md`.
 
 ---
@@ -38,7 +41,7 @@ Gợi ý tên SSH do user gõ: `$ARGUMENTS` (rỗng = tự đặt).
 2. Đọc `AGENTS.md` (bản đồ repo).
 3. Kiểm tra prompt + helper có trong repo:
    ```bash
-   ls .claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md bridge/ts-connect-proxy.py
+   ls .agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md bridge/ts-connect-proxy.py
    ```
    Thiếu → repo đang ở nhánh cũ (`main`) → **báo user** (`git checkout feat/quickly-ssh`
    hoặc merge) và dừng. Đừng tự sửa template.

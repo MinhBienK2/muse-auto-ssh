@@ -24,7 +24,7 @@ bản cũ nằm ở thư mục khác.
 | Proxy helper (socat) | `bridge/ts-socat-proxy.sh` |
 | Proxy helper (python, dùng khi container thiếu socat) | `bridge/ts-connect-proxy.py` |
 | Script loop tunnel | `bridge/reverse-tunnel.sh` |
-| Prompt dán cho Muse | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` (duy nhất) |
+| Prompt dán cho Muse | `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` (duy nhất) |
 
 **Cách kiểm tra.** `git ls-files | xargs grep -l <tên file>` — nếu tên file xuất hiện ở nhiều nơi,
 đó là bản sao cần xoá hoặc thay bằng symlink.
@@ -59,7 +59,7 @@ nền tảng đã chặn nội dung dạng "khối script lớn" (05/11, 06/11).
 
 | Biến | Template | Giới hạn | Dùng khi |
 |---|---|---|---|
-| (duy nhất) | `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` | < 18 KB (đang ~17 KB) | **máy Muse MỚI** — dán 1 lần là xong |
+| (duy nhất) | `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` | < 18 KB (đang ~17 KB) | **máy Muse MỚI** — dán 1 lần là xong |
 
 **Vì sao giới hạn chặt?** Bộ lọc an toàn của nền tảng đã **từ chối** prompt lớn (05/11, 06/11).
 Prompt hiện ~17 KB; test + `check_prompt_sync.sh` **troi ở 18 KB** (trần cứng của bộ lọc là 20 KB) →

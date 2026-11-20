@@ -10,8 +10,8 @@
 | Hiểu giao thức (envelope, loại tin, spool, trust) | [`PROTOCOL.md`](PROTOCOL.md) |
 | Chạy phía **máy của người dùng** (đọc/gửi tin, đăng ký Muse host) | [`LOCAL_AGENT.md`](LOCAL_AGENT.md) |
 | Chạy phía **container Muse** (bus, watchdog, tự phục hồi) | [`MUSE_AGENT.md`](MUSE_AGENT.md) |
-| Sửa **prompt dán cho Muse** | [`.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md`](.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md) → render bằng `python3 scripts/render_prompt.py` |
-| **Agent tự setup 2 chiều** (hỏi → sinh `setup_prompt.md` → chờ paste status block → hoàn tất) | skill [`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) — gọi bằng `/setup-ssh-muse` |
+| Sửa **prompt dán cho Muse** | [`.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md`](.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md) → render bằng `python3 scripts/render_prompt.py` |
+| **Agent tự setup 2 chiều** (hỏi → sinh `setup_prompt.md` → chờ paste status block → hoàn tất) | skill [`.agents/setup-ssh-muse/SKILL.md`](.agents/setup-ssh-muse/SKILL.md) — gọi bằng `/setup-ssh-muse` (Claude Code đọc qua symlink `.claude/skills` → `.agents`) |
 | Đọc **tiêu chuẩn code** (khi review hoặc khi phải khớp style) | [`CODING_STANDARDS.md`](CODING_STANDARDS.md) |
 | Cài đặt lần đầu / người dùng mới | [`README.md`](README.md) |
 
@@ -22,7 +22,7 @@
    phiên bản**, lệch version là mất tin.
 2. **Prompt là artifact sinh ra.** Không sửa `MUSE_PROMPT.md` bằng tay (nó còn bị `.gitignore` vì
    chứa host/user/pubkey của máy bạn). Sửa **template**
-   (`.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` — template duy nhất của repo)
+   (`.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` — template duy nhất của repo)
    rồi render lại.
 3. **Thông tin kết nối không vào git.** IP Tailscale, username, public key, đường dẫn máy → nằm ở
    `.muse-hosts/` (đã gitignore) hoặc runtime config, **không** hard-code trong file tracked và

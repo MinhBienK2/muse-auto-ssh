@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # setup_command_test.sh - Kiem tra skill /setup-ssh-muse
-# (.claude/skills/setup-ssh-muse/SKILL.md).
+# (.agents/setup-ssh-muse/SKILL.md).
 #
 # Voi sao can: skill nay la "hop dong" giua nguoi dung, agent ngoai va may Muse:
 #   agent -> hoi cau hoi -> sinh setup_prompt.md -> DUNG cho user paste ->
@@ -13,8 +13,8 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CMD="$REPO_DIR/.claude/skills/setup-ssh-muse/SKILL.md"
-TPL="$REPO_DIR/.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
+CMD="$REPO_DIR/.agents/setup-ssh-muse/SKILL.md"
+TPL="$REPO_DIR/.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md"
 
 fails=0
 ok() {
@@ -47,6 +47,11 @@ ok "allowed-tools co AskUserQuestion (phai hoi duoc user)" \
 # Repo chi con 1 skill: setup-ssh-muse (muse-oneshot da bi xoa).
 skills="$(ls -1 "$REPO_DIR/.claude/skills" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 ok "chi con 1 skill trong .claude/skills (hien tai: $skills)" test "$skills" = "setup-ssh-muse"
+
+# Skill that nam trong .agents/ (trung cho agent khac); .claude/skills la symlink.
+ok ".claude/skills la symlink tro ve .agents" \
+  bash -c '[ -L "$1" ] && [ "$(readlink "$1")" = "../.agents" ]' _ "$REPO_DIR/.claude/skills"
+ok "doc qua duoc skill qua symlink" test -f "$REPO_DIR/.claude/skills/setup-ssh-muse/SKILL.md"
 
 echo "== 2. co du 7 chang A..G"
 for c in "Chặng A" "Chặng B" "Chặng C" "Chặng D" "Chặng E" "Chặng F" "Chặng G"; do

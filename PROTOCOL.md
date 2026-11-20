@@ -233,7 +233,7 @@ stateDiagram-v2
 
 Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao giờ đi qua hộp chat.
 
-> **Prompt duy nhất của repo:** `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md`
+> **Prompt duy nhất của repo:** `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md`
 > → `.muse-hosts/<id>/MUSE_PROMPT.md` (sinh bằng `bridge.sh prompt --host <id>`), dành cho **máy
 > Muse mới**: prompt chứa sẵn Tailscale IP, user, port, spool, public key, đường dẫn bundle,
 > proxy, key path bền vững — kèm **7 bước** bootstrap và hợp đồng **"không hỏi lại, tự đi tiếp,
@@ -313,7 +313,7 @@ sequenceDiagram
     MA->>LA: HELLO + REPORT
 ```
 
-`bridge.sh prompt` render từ `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` +
+`bridge.sh prompt` render từ `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` +
 mã nguồn chung, nên **prompt luôn khớp với mã đang chạy** — không bao giờ lệch phiên bản.
 
 ### Flow C — "Muse thiếu gì thì hỏi máy tôi"

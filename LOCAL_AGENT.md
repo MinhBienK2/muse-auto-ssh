@@ -15,7 +15,7 @@ Bạn là **Agent Ngoài**: AI agent chạy trên máy tính cá nhân của ng�
 3. **Prompt cho Muse phải ngắn và bằng lời người dùng.** Bộ lọc an toàn của nền tảng Muse đã chặn
    nội dung dạng "dán khối script lớn"; Agent Muse cũng yêu cầu người dùng nói từng bước.
    Vì vậy `MUSE_PROMPT.md` **không chứa mã nguồn** — mã do bạn đẩy vào container sau khi kênh thông.
-   Sửa prompt thì sửa `.claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi
+   Sửa prompt thì sửa `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi
    `python3 scripts/render_prompt.py` (file `MUSE_PROMPT.md` bị gitignore vì chứa host/user/pubkey
    của máy bạn).
 4. **Mỗi lần trả lời người dùng, kiểm tra hộp thư trước** (mục 4).
@@ -70,7 +70,7 @@ bash scripts/bridge.sh prompt --host <id> --send            # tự dán vào cha
 
 Quy trình đầy đủ (hỏi user → arm → add-host → prompt → chờ paste status block → provision →
 verify) nằm trong skill
-[`.claude/skills/setup-ssh-muse/SKILL.md`](.claude/skills/setup-ssh-muse/SKILL.md) — đọc file đó
+[`.agents/setup-ssh-muse/SKILL.md`](.agents/setup-ssh-muse/SKILL.md) — đọc file đó
 rồi làm theo, đừng tự chế lệnh.
 
 ### 3.1. Zero-touch (không cần người dùng copy/paste)

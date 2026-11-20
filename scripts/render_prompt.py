@@ -2,7 +2,7 @@
 """Render prompt dan cho Agent Muse tu template.
 
 Repo co DUNG MOT prompt:
-  .claude/skills/setup-ssh-muse/reference/MUSE_PROMPT.template.md -> MUSE_PROMPT.md
+  .agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md -> MUSE_PROMPT.md
 
 Noi dung prompt nam trong skill (reference/) vi skill la noi duy nhat mo ta
 "ket noi 1 may Muse moi" - ca quy trinh agent, ca prompt dan sang Muse.
@@ -29,7 +29,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUT = os.path.join(REPO, "MUSE_PROMPT.md")
 PROXY_PY = os.path.join(REPO, "bridge", "ts-connect-proxy.py")
 TEMPLATE = os.path.join(
-    REPO, ".claude", "skills", "setup-ssh-muse", "reference", "MUSE_PROMPT.template.md"
+    REPO, ".agents", "setup-ssh-muse", "reference", "MUSE_PROMPT.template.md"
 )
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 
@@ -108,7 +108,7 @@ def main() -> int:
     if not os.path.isfile(TEMPLATE):
         print(
             "render_prompt: khong tim thay template: %s\n"
-            "  (template nam trong skill .claude/skills/setup-ssh-muse/reference/ - "
+            "  (template nam trong skill .agents/setup-ssh-muse/reference/ - "
             "clone repo day du hoac checkout nhanh feat/quickly-ssh)" % TEMPLATE,
             file=sys.stderr,
         )

@@ -43,6 +43,7 @@ PORT=""
 LABEL=""
 KEY=""
 PROFILE_DIR=""
+JSON=""
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-600}"
 MUSE_WEB_ARGS=()
 
@@ -56,6 +57,7 @@ parse_flags() {
       --label)   LABEL="$2"; shift 2 ;;
       --key)     KEY="$2"; shift 2 ;;
       --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
+      --json)    JSON="1"; shift ;;
       --timeout) WAIT_TIMEOUT="$2"; shift 2 ;;
       *) REST+=("$1"); shift ;;
     esac
@@ -779,6 +781,15 @@ cmd_hosts() {
   done
 }
 
+# Liet ke Chrome profile tren may + profile nao con dang nhap muse.ai.
+# Agent dung lenh nay de hoi user chon profile (khong hard-code Default/Profile 2).
+cmd_profiles() {
+  parse_flags "$@"
+  local args=()
+  [ "$JSON" = "1" ] || args+=(--text)
+  python3 "$REPO_DIR/scripts/chrome_profiles.py" "${args[@]}"
+}
+
 cmd_authorize() {
   parse_flags "$@"
   local key="$KEY"
@@ -1146,6 +1157,7 @@ case "${1:-}" in
   prompt)    shift; cmd_prompt "$@" ;;
   push)      shift; cmd_push "$@" ;;
   hosts)     shift; cmd_hosts "$@" ;;
+  profiles)  shift; cmd_profiles "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
   release)   shift; cmd_release "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
@@ -1158,5 +1170,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
 esac

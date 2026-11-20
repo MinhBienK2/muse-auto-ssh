@@ -93,7 +93,24 @@ Hỏi bằng `AskUserQuestion` (user trả lời nhanh bằng click), **không**
    `muse-002`, `muse-003`… (kiểm tra bằng `grep -c "^Host " ~/.ssh/config` và
    `bash scripts/bridge.sh hosts`).
 2. **Cổng forward**: mặc định để trống → repo tự cấp cổng trống kế tiếp (`2222`, `2223`…).
-3. **Profile Chrome**: `Default` (mặc định) hay `Profile 2` (account Muse khác).
+3. **Profile Chrome (account Muse của container mới)** — **luôn hỏi**, nhưng lựa chọn phải là
+   profile **thật của máy này**, không hard-code `Default`/`Profile 2` (mỗi máy một danh sách
+   khác nhau, một máy có thể có nhiều account Muse đã đăng nhập):
+   ```bash
+   bash scripts/bridge.sh profiles            # bảng: profile, tên, email, muse.ai, host đang dùng
+   bash scripts/bridge.sh profiles --json     # cho agent parse
+   ```
+   - **In bảng `profiles` ra chat trước** (profile, tên hiển thị, email, còn đăng nhập Muse không,
+     host nào đang dùng) → user thấy đúng tên và mail, không phải đoán.
+   - Hỏi bằng `AskUserQuestion`, **nhãn lựa chọn phải kèm email**, ví dụ:
+     `Profile 15 — Minh — email-cua-ban@gmail.com`.
+   - Tối đa **3 lựa chọn** (giới hạn của `AskUserQuestion`) = các profile **đang đăng nhập Muse**
+     (cookie còn sống, nhiều nhất trước) + `Other: gõ tay tên profile`.
+   - **Chỉ có 1 profile** → **vẫn hỏi** (1 lựa chọn + `Other`) để user xác nhận — không tự chọn thầm.
+   - Profile nào đang có host dùng → nói rõ "host `muse3` đang dùng profile này" **trước khi** user
+     chọn (dùng chung account Muse hay không là tuỳ user).
+   - **Giá trị lưu vào `--profile-dir` là tên thư mục** (`Profile 15`), **không phải email**.
+   - Không có Chrome / không profile nào → vẫn hỏi (cho user gõ tay qua `Other`, hoặc `Default`).
 
 Alias được dùng **làm host id** trong repo (`.muse-hosts/<alias>/`, spool, `~/.ssh/config`)
 → sau khi xong user gõ đúng `ssh <alias>` là vào container.
@@ -103,7 +120,7 @@ bash) — để session bị ngắt ở chặng nào cũng resume được:
 
 ```json
 // .muse-hosts/<alias>/setup_state.json
-{"phase": "asked", "alias": "<alias>", "port": "<port>", "profile": "<profile>",
+{"phase": "asked", "alias": "<alias>", "port": "<port>", "profile": "<ten thu muc profile, vi du \"Profile 15\">",
  "prompt_path": "", "created": "<thoi diem>", "muse_output": ""}
 ```
 

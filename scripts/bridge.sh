@@ -3,6 +3,8 @@
 # bridge.sh - CLI phia may ngoai (Agent Ngoai goi lenh nay).
 #
 #   hosts                      danh sach cac Muse host da dang ky
+#   profiles                   liet ke Chrome profile + profile nao con dang nhap muse.ai
+#                              [--json]  (agent dung de hoi user chon profile)
 #   add-host --host <id>       dang ky Muse host moi (port, ssh alias, spool)
 #                              [--profile-dir "Profile 2"]  <- Chrome profile/account
 #   set-port --host <id> --port <p>  doi port host da dang ky (khong ghi lai card)
@@ -36,6 +38,7 @@ LOCAL_SIDE="$REPO_DIR/bridge/local_side.sh"
 
 case "${1:-}" in
   hosts)     shift; bash "$LOCAL_SIDE" hosts "$@" ;;
+  profiles)  shift; bash "$LOCAL_SIDE" profiles "$@" ;;
   doctor)    shift; bash "$LOCAL_SIDE" doctor "$@" ;;
   release)   shift; bash "$LOCAL_SIDE" release "$@" ;;
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
@@ -56,5 +59,5 @@ case "${1:-}" in
   push)      shift; bash "$LOCAL_SIDE" push "$@" ;;
   authorize) shift; bash "$LOCAL_SIDE" authorize "$@" ;;
   selftest)  shift; bash "$REPO_DIR/tests/run_all.sh" ;;
-  *) sed -n '2,28p' "$0"; exit 2 ;;
+  *) sed -n '2,30p' "$0"; exit 2 ;;
 esac

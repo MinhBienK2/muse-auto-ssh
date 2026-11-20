@@ -160,8 +160,15 @@ bash scripts/bridge.sh add-host --host muse3 --port 2224 --profile-dir "Profile 
 bash scripts/bridge.sh onboard --host muse3
 ```
 
-Xem tên profile Chrome: `~/.config/google-chrome/Local State` → `profile.info_cache` (key = tên thư mục,
-value = tên hiển thị). Bỏ `--profile-dir` thì dùng `Default`.
+Xem profile nào đang có account Muse đăng nhập (tên + email + host nào đang dùng):
+
+```bash
+bash scripts/bridge.sh profiles            # bảng đầy đủ
+bash scripts/bridge.sh profiles --json     # cho agent parse
+```
+
+Cột `LOGGED_IN=yes` = profile đó còn cookie muse.ai sống (còn đăng nhập). Cột `USED_BY` = host nào
+đang dùng profile đó. Bỏ `--profile-dir` thì dùng `Default`.
 
 Mỗi host có **CDP port và clone dir riêng** (ghi trong `.muse-hosts/<id>.json`: `web_cdp_port`,
 `web_clone_dir`) → chạy song song nhiều host, mỗi host một Chrome clone độc lập, không đụng nhau.
@@ -222,6 +229,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 ├── scripts/
 │   ├── bridge.sh                # ⭐ CLI phía máy ngoài
 │   ├── render_prompt.py         # sinh MUSE_PROMPT.md từ template
+│   ├── chrome_profiles.py       # liệt kê Chrome profile + profile nào còn đăng nhập muse.ai
 │   ├── install_tofu_hook.sh     # cài TOFU hook (sudo, 1 lần)
 │   ├── install_sshd_keepalive.sh # sshd tự đóng session treo (sudo, 1 lần)
 │   ├── update_host_state.py     # cập nhật trạng thái trong .muse-hosts/<id>.json
@@ -284,6 +292,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | Lệnh (máy bạn) | Việc |
 |---|---|
 | `bash scripts/bridge.sh hosts` | Liệt kê Muse host đang quản lý |
+| `bash scripts/bridge.sh profiles` | Liệt kê Chrome profile + profile nào còn đăng nhập muse.ai (tên, email, host đang dùng) |
 | `bash scripts/bridge.sh add-host --host <id>` | Đăng ký Muse host mới (port, ssh alias, spool) |
 | `bash scripts/bridge.sh set-port --host <id> --port <p>` | Đổi port host đã đăng ký (config + card + ssh alias), **không** ghi lại card |
 | `bash scripts/bridge.sh add-host --host <id> --profile-dir "Profile 2"` | Như trên, nhưng host dùng Chrome profile (account) khác `Default` |

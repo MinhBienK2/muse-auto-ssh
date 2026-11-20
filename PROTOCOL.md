@@ -50,6 +50,9 @@ profile** và mở Chrome bằng `--profile-directory` giữ nguyên tên profil
 làm mất phiên đăng nhập (muse.ai hiện trang "Log in"). Mỗi host dùng một CDP port + clone dir riêng
 để chạy song song, không đụng nhau.
 
+Xem profile nào đang có account Muse đăng nhập (tên thư mục + email + host đang dùng):
+`bash scripts/bridge.sh profiles`.
+
 ```mermaid
 flowchart LR
     LA["Agent Ngoài"] --> H1["spools/muse<br/>port 2222"]

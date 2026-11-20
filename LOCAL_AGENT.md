@@ -161,8 +161,9 @@ Chrome profile khác `Default`, khai báo lúc đăng ký host:
 bash scripts/bridge.sh add-host --host muse3 --port 2224 --profile-dir "Profile 2"
 ```
 
-Tên thư mục profile: đọc `~/.config/google-chrome/Local State` → `profile.info_cache` (key = tên thư
-mục như `Default`, `Profile 2`). Mỗi host có CDP port + clone dir riêng → chạy song song được.
+Tên thư mục profile: `bash scripts/bridge.sh profiles` → in ra tên thư mục (`Default`, `Profile 2`…),
+tên hiển thị, email Google, profile nào còn đăng nhập muse.ai, và host nào đang dùng. Mỗi host có
+CDP port + clone dir riêng → chạy song song được.
 
 ---
 

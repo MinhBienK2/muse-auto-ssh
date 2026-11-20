@@ -103,9 +103,13 @@ if [ ! -x /usr/sbin/sshd ]; then
   done
 fi
 [ -x /usr/sbin/sshd ] || /usr/sbin/sshd 2>/dev/null || true
-# "sshd chay" chua du - phai tra loi duoc BANNER tren :22
-timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH \
-  && echo SSHD_OK || echo SSHD_FAIL
+# "sshd chay" chua du - phai tra loi duoc BANNER tren :22.
+# Probe bang python3 (bash build co the TAT /dev/tcp):
+timeout 5 python3 - <<'PYPROBE' | grep -q SSH && echo SSHD_OK || echo SSHD_FAIL
+import os, socket, sys
+{{BANNER_PROBE}}
+banner_probe("127.0.0.1", 22, 4)
+PYPROBE
 ```
 
 Fallback nếu `SSHD_FAIL`: `pkill -x sshd; mkdir -p /run/sshd; chmod 755 /run/sshd; /usr/sbin/sshd;`
@@ -185,29 +189,20 @@ bash /home/hatch/.muse-bridge/bundle/muse_side.sh setup \
 Lệnh này tự lo toàn bộ: `sshd`, key, proxy, **loop tunnel tự reconnect mỗi 10s**, **unit systemd
 `Restart=always`**, **watchdog 15s (Hatch hook)**, cấu hình bus, rồi gửi `HELLO`/`REPORT` về máy tôi.
 
-### 5b — Cách dựng phòng (bundle không có) — tự viết bằng tay
+### 5b — Cách dựng phòng (bundle không có)
+
+Chỉ chạy khi 5a không có/không lên tunnel; **một port chỉ một supervisor** (chạy cả hai sẽ báo
+`remote port forwarding failed for listen port {{LOCAL_PORT}}`). Tự viết loop + unit rồi bật:
 
 ```bash
-BASE={{MUSE_BASE}}
-KEY={{MUSE_BASE}}/keys/muse-agent-ed25519
-T="$BASE/tunnel"
-mkdir -p "$T"
-cat > "$T/tunnel-{{LOCAL_PORT}}.conf" <<EOF
-LOCAL_IP="{{LOCAL_HOST}}"
-LOCAL_USER="{{LOCAL_USER}}"
-REMOTE_PORT="{{LOCAL_PORT}}"
-KEY_PATH="$KEY"
-PROXY_PATH="/home/hatch/.ssh/ts-proxy.py"
-EOF
-cat > "$T/reverse-tunnel-{{LOCAL_PORT}}.sh" <<EOF
+T={{MUSE_BASE}}/tunnel; mkdir -p "$T" /run/sshd /var/run/sshd; chmod 755 /run/sshd /var/run/sshd
+printf 'LOCAL_IP="{{LOCAL_HOST}}"\nLOCAL_USER="{{LOCAL_USER}}"\nREMOTE_PORT="{{LOCAL_PORT}}"\nKEY_PATH="{{MUSE_BASE}}/keys/muse-agent-ed25519"\nPROXY_PATH="/home/hatch/.ssh/ts-proxy.py"\n' > "$T/tunnel-{{LOCAL_PORT}}.conf"
+cat > "$T/reverse-tunnel-{{LOCAL_PORT}}.sh" <<'EOF'
 #!/bin/bash
-set -u
-KEY="$KEY"
 while true; do
-  mkdir -p /run/sshd /var/run/sshd 2>/dev/null
-  chmod 755 /run/sshd /var/run/sshd 2>/dev/null
+  mkdir -p /run/sshd; chmod 755 /run/sshd /var/run/sshd 2>/dev/null
   pgrep -x sshd >/dev/null 2>&1 || /usr/sbin/sshd 2>/dev/null
-  ssh -i "\$KEY" -N -R {{LOCAL_PORT}}:127.0.0.1:22 \
+  ssh -i {{MUSE_BASE}}/keys/muse-agent-ed25519 -N -R {{LOCAL_PORT}}:127.0.0.1:22 \
     -o "ProxyCommand=python3 /home/hatch/.ssh/ts-proxy.py %h %p" \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes \
     -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
@@ -216,37 +211,19 @@ while true; do
 done
 EOF
 chmod +x "$T/reverse-tunnel-{{LOCAL_PORT}}.sh"
-cat > /etc/systemd/system/muse-reverse-tunnel-{{LOCAL_PORT}}.service <<EOF
-[Unit]
-Description=Muse reverse SSH tunnel (port {{LOCAL_PORT}}) - may ngoai
-After=network.target
-
-[Service]
-Type=simple
-ExecStartPre=/bin/bash -c "mkdir -p /run/sshd /var/run/sshd; chmod 755 /run/sshd /var/run/sshd"
-ExecStart=/bin/bash $T/reverse-tunnel-{{LOCAL_PORT}}.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
+printf '[Unit]\nDescription=Muse reverse tunnel {{LOCAL_PORT}}\n[Service]\nExecStart=/bin/bash %s\nRestart=always\nRestartSec=10\n[Install]\nWantedBy=multi-user.target\n' "$T/reverse-tunnel-{{LOCAL_PORT}}.sh" > /etc/systemd/system/muse-reverse-tunnel-{{LOCAL_PORT}}.service
 systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl enable --now muse-reverse-tunnel-{{LOCAL_PORT}}.service >/dev/null 2>&1 \
   || nohup /bin/bash "$T/reverse-tunnel-{{LOCAL_PORT}}.sh" >> "$T/tunnel.log" 2>&1 </dev/null &
 sleep 5
 ```
 
-> Chỉ chạy 5b khi 5a không có hoặc không lên tunnel. **Một port chỉ được một supervisor giữ** —
-> không chạy cả 5a lẫn 5b cùng lúc, nếu không sẽ báo
-> `remote port forwarding failed for listen port {{LOCAL_PORT}}`.
-
 ## Bước 6 — Tự kiểm tra (đo, đừng tin lời hứa)
 
 ```bash
 pgrep -af -- "-R {{LOCAL_PORT}}:" | head -3            # 1. tunnel đang chạy
-timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH \
-  && echo SSHD_OK || echo SSHD_FAIL                     # 2. sshd trả lời banner
+timeout 5 python3 {{MUSE_BASE}}/tunnel/ts-connect-proxy.py --banner 127.0.0.1 22 2>/dev/null | grep -q SSH \
+  && echo SSHD_OK || echo SSHD_FAIL                     # 2. sshd trả lời banner (python3, không dùng /dev/tcp)
 systemctl is-active muse-reverse-tunnel-{{LOCAL_PORT}}.service 2>/dev/null || echo NO_SYSTEMD
 ls -l /home/hatch/hooks/definitions/muse-platform-boot.json 2>/dev/null || echo NO_HOOK
 [ -f /home/hatch/.muse-bridge/bridge.py ] && echo BUS_OK || echo NO_BUS

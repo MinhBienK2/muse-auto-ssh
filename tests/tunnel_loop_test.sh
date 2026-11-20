@@ -70,6 +70,7 @@ chmod +x "$STUB/pgrep"
 PORT=9999
 TUN="$TMP/tunnel"; mkdir -p "$TUN"
 cp "$REPO_DIR/bridge/reverse-tunnel.sh" "$TUN/reverse-tunnel-$PORT.sh"
+cp "$REPO_DIR/bridge/ts-connect-proxy.py" "$TUN/ts-connect-proxy.py"
 cat > "$TUN/tunnel-$PORT.conf" <<EOF
 LOCAL_IP="127.0.0.1"
 LOCAL_USER="testuser"

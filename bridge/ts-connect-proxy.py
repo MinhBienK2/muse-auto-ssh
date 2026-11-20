@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """ts-connect-proxy.py - ProxyCommand cho ssh: noi thang, khong duoc thi HTTP CONNECT.
 
-    ts-connect-proxy.py <target-host> <target-port>
+    ts-connect-proxy.py <host> <port> | --banner <host> <port>
 
-Cung cap cho container Muse khi `socat` khong co (apt qua proxy hay treo) - dung
-`python3` co san. `ts-socat-proxy.sh` goi file nay khi thieu socat.
-
-Day la BAN GOC duy nhat cua proxy helper Python: prompt dan cho Muse inject file nay
-vao chat (render_prompt.py) nen khong co hai ban lech nhau.
+Ban goc duy nhat: prompt inject nguyen file nay (render_prompt.py); container dung
+python3 co san khi thieu socat. ts-socat-proxy.sh goi file nay lam fallback.
 """
 import os
 import select
@@ -38,9 +35,22 @@ def open_conn(host, port):
     return sock
 
 
+def banner_probe(host, port, timeout):
+    """In 4 byte dau (banner SSH) cua host:port. Thay bash /dev/tcp (co the bi TAT)."""
+    try:
+        with socket.create_connection((host, port), timeout) as sock:
+            sock.settimeout(timeout)
+            os.write(1, sock.recv(4))
+    except OSError:
+        return 1
+    return 0
+
+
 def main():
+    if len(sys.argv) >= 4 and sys.argv[1] == "--banner":
+        return banner_probe(sys.argv[2], int(sys.argv[3]), 5)
     if len(sys.argv) < 3:
-        sys.stderr.write("usage: ts-connect-proxy.py <host> <port>\n")
+        sys.stderr.write("usage: ts-connect-proxy.py <host> <port> | --banner <host> <port>\n")
         return 2
     sock = open_conn(sys.argv[1], int(sys.argv[2]))
     stdin_open = True

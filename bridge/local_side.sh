@@ -217,7 +217,12 @@ require_host() {
 
 next_free_port() {
   local p=2222
-  while ss -tln 2>/dev/null | grep -q ":$p\b"; do p=$((p+1)); done
+  # Bo qua ca port dang LISTEN lan port da dang ky cho host khac (tunnel DOWN
+  # van giu port) — neu khong, hai host dung chung mot cong forward.
+  while ss -tln 2>/dev/null | grep -q ":$p\b" \
+        || grep -qs "\"port\": ${p}[,}]" "$HOSTS_DIR"/*.json; do
+    p=$((p+1))
+  done
   echo "$p"
 }
 
@@ -672,7 +677,7 @@ cmd_daemon() {
         # Port forward con song nhung container da chet (bi dong bang) -> session
         # ssh cu giu chet port, container moi khong bind duoc. Dung session cu.
         if ss -tln 2>/dev/null | grep -q ":$p\b" \
-           && ! timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$p; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+           && ! timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$p" 2>/dev/null | grep -q SSH; then
           if forward_release "$p"; then
             watch_say "canh host '$id' (port $p): forward treo (container da chet) -> da dung session ssh cu giu port do"
           else
@@ -1090,7 +1095,7 @@ cmd_release() {
       say "host '$id' (port $port): khong co listener -> khong can release"
       continue
     fi
-    if timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+    if timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null | grep -q SSH; then
       say "host '$id' (port $port): container van tra loi banner -> KHONG release (forward dang tot)"
       continue
     fi
@@ -1131,7 +1136,7 @@ cmd_doctor() {
     if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi
     # Forward con song nhung container da chet: port van LISTEN, banner khong ve.
     if ss -tln 2>/dev/null | grep -q ":$port\b"; then
-      if ! timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port; head -c 4 <&3" 2>/dev/null | grep -q SSH; then
+      if ! timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null | grep -q SSH; then
         printf 'STALE-FORWARD(da giu port) '
         warn "  host '$id': port $port con listener nhung container khong tra loi banner -> session ssh cu bi treo. Lam: bash scripts/bridge.sh release --host $id (dung session dung port) | nen: sudo bash scripts/install_sshd_keepalive.sh"
       fi

@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # watchdog_upgrade_test.sh - Kiem tra nang cap watchdog trong Hatch boot hook:
-#   - moi block watchdog cu phai bi go, chi con duy nhat block v6.
-#   - block v6 phai gan theo PORT (unit per-port + pgrep theo port).
+#   - moi block watchdog cu phai bi go, chi con duy nhat block v7.
+#   - block v7 phai gan theo PORT (unit per-port + pgrep theo port).
 #   - inject lai phai idempotent (khong nhan ban).
 #   - hook PHAI ket thuc bang HATCH_HOOK_RESULT (Hatch goi "failed" neu thieu).
 # ==============================================================================
@@ -43,8 +43,8 @@ PROXY="/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh"
 python3 "$INJECT" "$HOOK" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
 check "inject chay khong loi" $?
 
-grep -q "muse-bridge watchdog v6" "$HOOK"
-check "co block v6" $?
+grep -q "muse-bridge watchdog v7" "$HOOK"
+check "co block v7" $?
 grep -q "Auto keep SSH and G3 Reverse Tunnel alive" "$HOOK"
 if [ $? -eq 0 ]; then echo "  FAIL - block v1 con lai"; fails=$((fails+1)); else echo "  ok   - block v1 da bi go"; fi
 grep -q "muse-bridge watchdog v2] BEGIN" "$HOOK"
@@ -54,13 +54,13 @@ check "phan con lai cua hook duoc giu nguyen" $?
 bash -n "$HOOK"
 check "hook van hop le (bash -n)" $?
 
-# --- v6: block phai giu nguyen "%" literal trong shell ------------------------
+# --- v7: block phai giu nguyen "%" literal trong shell ------------------------
 # Loi that: BLOCK duoc format bang "%" -> moi "%" literal bi an mat.
 # "date +%s" -> "date +{'port': '2222'}" -> nhanh tu cai openssh-server trong
 # container KHONG BAO GIO chay -> container chet sshd la treo dai den khi co
 # nguoi cai tay.
 grep -q 'date +%s' "$HOOK"
-check "v6 giu nguyen 'date +%s' (khong bi %-format an mat)" $?
+check "v7 giu nguyen 'date +%s' (khong bi %-format an mat)" $?
 if grep -q "date +{" "$HOOK"; then
   echo "  FAIL - placeholder %-format con lot vao block"; fails=$((fails+1))
 else
@@ -72,44 +72,44 @@ else
   echo "  ok   - moi placeholder @@ da duoc thay"
 fi
 
-# --- v6 phai gan theo port (khong dung unit generic) -------------------------
+# --- v7 phai gan theo port (khong dung unit generic) -------------------------
 grep -q 'UNIT="muse-reverse-tunnel-2222.service"' "$HOOK"
-check "v6 dung unit per-port" $?
+check "v7 dung unit per-port" $?
 # Pattern pgrep phai theo "-R <port>:" KHONG phu thuoc thu tu flag cua lenh ssh
 # ("ssh -i KEY -N -R ..." -> pattern "ssh -N -R" that bai -> watchdog spawn
 #  them va giu chet port forward).
 grep -q -- '-R 2222:' "$HOOK"
-check "v6 pgrep theo port" $?
+check "v7 pgrep theo port" $?
 grep -q 'pgrep -f .ssh -N -R' "$HOOK"
-if [ $? -eq 0 ]; then echo "  FAIL - v6 van dung pattern phu thuoc thu tu flag"; fails=$((fails+1)); else echo "  ok   - v6 dung pattern khong phu thuoc thu tu flag"; fi
+if [ $? -eq 0 ]; then echo "  FAIL - v7 van dung pattern phu thuoc thu tu flag"; fails=$((fails+1)); else echo "  ok   - v7 dung pattern khong phu thuoc thu tu flag"; fi
 grep -q "muse-reverse-tunnel.service" "$HOOK"
-if [ $? -eq 0 ]; then echo "  FAIL - v6 van tro toi unit generic"; fails=$((fails+1)); else echo "  ok   - v6 khong con unit generic"; fi
+if [ $? -eq 0 ]; then echo "  FAIL - v7 van tro toi unit generic"; fails=$((fails+1)); else echo "  ok   - v7 khong con unit generic"; fi
 
-# --- v6: so san LOOP_VERSION phai lay GIA TRI thuan ---------------------------
+# --- v7: so san LOOP_VERSION phai lay GIA TRI thuan ---------------------------
 # Sai: WANT="LOOP_VERSION=\"v5\"" vs HAVE="v5" -> restart lien tuc -> tunnel chop chop.
 grep -q "sed 's/.*=\"//; s/\"\$//'" "$HOOK"
-check "v6 so san version lay gia tri thuan" $?
+check "v7 so san version lay gia tri thuan" $?
 
-# --- v6: block phai nam SAU shebang va SAU set -euo pipefail ----------------
+# --- v7: block phai nam SAU shebang va SAU set -euo pipefail ----------------
 head -1 "$HOOK" | grep -q "^#!"
 check "shebang van o dong dau (block khong chen truoc shebang)" $?
 shebang_line=$(grep -n "^#!" "$HOOK" | head -1 | cut -d: -f1)
 setline=$(grep -n "^set -euo pipefail" "$HOOK" | head -1 | cut -d: -f1)
-blockline=$(grep -n "muse-bridge watchdog v6] BEGIN" "$HOOK" | head -1 | cut -d: -f1)
+blockline=$(grep -n "muse-bridge watchdog v7] BEGIN" "$HOOK" | head -1 | cut -d: -f1)
 if [ -n "$shebang_line" ] && [ -n "$blockline" ] && [ "$blockline" -gt "$shebang_line" ]; then
-  check "block v6 nam sau shebang" 0
+  check "block v7 nam sau shebang" 0
 else
-  check "block v6 nam sau shebang" 1
+  check "block v7 nam sau shebang" 1
 fi
 if [ -n "$setline" ] && [ -n "$blockline" ] && [ "$blockline" -gt "$setline" ]; then
-  check "block v6 nam sau set -euo pipefail" 0
+  check "block v7 nam sau set -euo pipefail" 0
 else
-  check "block v6 nam sau set -euo pipefail" 1
+  check "block v7 nam sau set -euo pipefail" 1
 fi
 
-# --- v6: chi MOT supervisor (khong spawn loop khi da co systemd unit) ---------
+# --- v7: chi MOT supervisor (khong spawn loop khi da co systemd unit) ---------
 grep -q 'if \[ "$HAVE_SYSTEMD" != "1" \] || \[ ! -f "/etc/systemd/system/$UNIT" \]; then' "$HOOK"
-check "v6 khong spawn loop khi co systemd unit" $?
+check "v7 khong spawn loop khi co systemd unit" $?
 
 # --- inject lai phai idempotent ----------------------------------------------
 cp "$HOOK" "$TMP/hook.after1"
@@ -117,12 +117,36 @@ python3 "$INJECT" "$HOOK" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/
 diff -q "$TMP/hook.after1" "$HOOK" >/dev/null
 check "inject lai khong doi file (idempotent)" $?
 
-n=$(grep -c "muse-bridge watchdog v6] BEGIN" "$HOOK")
+n=$(grep -c "muse-bridge watchdog v7] BEGIN" "$HOOK")
 if [ "$n" = "1" ]; then
-  check "chi co 1 block v6" 0
+  check "chi co 1 block v7" 0
 else
-  check "chi co 1 block v6" 1
+  check "chi co 1 block v7" 1
 fi
+
+# --- v7: hook dang chay block v6 phai duoc nang cap (go v6, thay v7) ----------
+# Loi that: probe /dev/tcp cua v6 fail tren bash khong ho tro -> watchdog pkill
+# sshd moi 15s -> tunnel chop chop. Inject v7 phai thay sach v6.
+HOOK_V6="$TMP/hook.v6"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$HOOK_V6"
+python3 "$REPO_DIR/bridge/inject_watchdog.py" "$HOOK_V6" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
+# gia lap ban v6 cu: doi marker v7 -> v6 (noi dung giong het ban cu)
+python3 - "$HOOK_V6" <<'PY'
+import sys
+p = sys.argv[1]
+with open(p) as fh:
+    text = fh.read()
+with open(p, "w") as fh:
+    fh.write(text.replace("watchdog v7", "watchdog v6"))
+PY
+python3 "$INJECT" "$HOOK_V6" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
+if grep -q "watchdog v6" "$HOOK_V6"; then
+  echo "  FAIL - block v6 cu chua bi go"; fails=$((fails+1))
+else
+  echo "  ok   - block v6 cu da bi go, thay bang v7"
+fi
+grep -q "watchdog v7] BEGIN" "$HOOK_V6"
+check "hook v6 cu duoc nang cap len v7" $?
 
 # --- v5: so san LOOP_VERSION phai DUNG (khong restart lien tuc) --------------
 # Loi goc: WANT="LOOP_VERSION=\"v5\"" != HAVE="v5" -> watchdog kill tunnel MOI 15s
@@ -150,7 +174,7 @@ eval "$v_have"
 if [ "$WANT" != "$HAVE" ]; then ver_rc=0; else ver_rc=1; fi
 check "version cu -> WANT!=HAVE (co restart)" "$ver_rc"
 
-# --- v6: block cu chen TRUOC shebang phai duoc go -----------------------------
+# --- v7: block cu chen TRUOC shebang phai duoc go -----------------------------
 # Loi that tren host "muse": file hook bat dau bang block v4, shebang bi dan
 # vao cung dong voi "END" -> hook mat shebang -> Hatch khong chay duoc script.
 HOOK_V4="$TMP/hook.v4"
@@ -170,7 +194,7 @@ if [ $? -eq 0 ]; then echo "  FAIL - block v4 con lai"; fails=$((fails+1)); else
 bash -n "$HOOK_V4"
 check "hook v4 cu lam lai van hop le (bash -n)" $?
 
-# --- v6: hook PHAI ket thuc bang HATCH_HOOK_RESULT ---------------------------
+# --- v7: hook PHAI ket thuc bang HATCH_HOOK_RESULT ---------------------------
 # Loi that tren host "muse2": hook chi co block watchdog, khong define ham
 # `silent` -> Hatch bao loi "script exited without calling silent() or wake()"
 # -> hook FAIL -> watchdog vo hieu (unit/authorized_keys khong duoc cai lai).
@@ -199,7 +223,7 @@ check "hook co silent that: exit 0" "$rc_res"
 printf '%s' "$rt_out" | grep -q "HATCH_HOOK_RESULT"
 check "hook co silent that: in ra marker" $?
 
-# --- v6: dong "silent ..." SOT LAI NGOAI block phai duoc go ------------------
+# --- v7: dong "silent ..." SOT LAI NGOAI block phai duoc go ------------------
 # Loi that tren host "muse2": file hook con mot dong
 #   silent "muse-bridge watchdog ok"
 # ngoai block (do lan inject cu de lai). `set -eu` lam script CHET ngay tai do

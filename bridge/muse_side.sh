@@ -88,8 +88,9 @@ ensure_pkgs() {
 }
 
 sshd_alive() {
-  # sshd "chay" (pgrep) khong du - phai tra loi duoc banner tren :22
-  timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH
+  # sshd "chay" (pgrep) khong du - phai tra loi duoc banner tren :22.
+  # Dung python3: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3).
+  timeout 5 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null | grep -q SSH
 }
 
 ensure_sshd() {
@@ -390,8 +391,8 @@ HOOK_EOF
   fi
   ensure_hatch_hook
   # Gate theo PHIEN BAN watchdog, khong phoi chuoi "watchdog ok":
-  # hook dang co ban cu se bi skip neu chi kiem tra chuoi chung -> khong bao gio len v6.
-  if grep -q "muse-bridge watchdog v6" "$hook"; then
+  # hook dang co ban cu se bi skip neu chi kiem tra chuoi chung -> khong bao gio len v7.
+  if grep -q "muse-bridge watchdog v7" "$hook"; then
     PERSISTENCE="hatch-hook(15s)"
     say "watchdog: da co ban moi nhat trong $hook"
     return

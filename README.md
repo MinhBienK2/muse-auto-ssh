@@ -223,7 +223,7 @@ Mỗi lượt làm việc, cả hai bên đều: `inbox` → xử lý → `send`
 │   ├── reverse-tunnel.sh        # loop tự reconnect tunnel (mỗi port một bản + config riêng)
 │   ├── ts-socat-proxy.sh        # nối qua HTTP CONNECT proxy của Hatch (có đường cứu)
 │   ├── ts-connect-proxy.py      # cùng việc, viết bằng python (dùng khi container thiếu socat)
-│   ├── inject_watchdog.py       # watchdog v6 (sshd + key + unit + HATCH_HOOK_RESULT)
+│   ├── inject_watchdog.py       # watchdog v7 (sshd + key + unit + HATCH_HOOK_RESULT; probe banner bằng python3)
 │   ├── authorize_peer.sh        # TOFU cho sshd (tự pin key Muse mới)
 │   └── muse-bridge-daemon.service  # unit systemd user cho daemon nền
 ├── scripts/

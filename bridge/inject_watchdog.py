@@ -5,8 +5,8 @@ Usage:
     python3 inject_watchdog.py <hook.sh> <loop.sh> <key> <proxy.sh> <user> <host>
 
 Idempotent:
-  - moi block watchdog cu (v1..v5) deu bi go, chi con block v6.
-  - block v6 inject lai deu an toan (thay bang chinh no).
+  - moi block watchdog cu (v1..v6) deu bi go, chi con block v7.
+  - block v7 inject lai deu an toan (thay bang chinh no).
 
 v4 sua 3 loi cu gay CHET kenh:
   - supervisor phai theo PORT (unit per-port + pgrep theo port), tranh 2 host
@@ -25,6 +25,10 @@ v6 sua 2 loi con "silent":
     sau khi refresh khong con tu cai lai unit/authorized_keys.
   - block cu bi chen TRUOC shebang (va shebang bi dan vao dong cuoi block) ->
     file hook mat shebang -> Hatch khong chay duoc script.
+
+v7 sua loi probe banner: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3)
+-> probe cu LUON fail -> watchdog pkill sshd moi 15s du sshd dang tot -> tunnel
+chop chop, provision dang chay thi bi cat. v7 probe banner bang python3.
 """
 
 from __future__ import annotations
@@ -33,15 +37,15 @@ import os
 import re
 import sys
 
-BEGIN = "# [muse-bridge watchdog v6] BEGIN"
-END = "# [muse-bridge watchdog v6] END"
+BEGIN = "# [muse-bridge watchdog v7] BEGIN"
+END = "# [muse-bridge watchdog v7] END"
 
 # Template dung placeholder "@@NAME@@" + str.replace, KHONG dung "%"-format.
 # Ly do: "%"-format se an mat moi "%" literal trong shell (vi du "date +%s" ->
 # "date +{'port': '2222'}") -> nhanh tay lam hong CHINH nhanh tu cai openssh-server.
 # Dung "@@" thi "%" trong shell luon an toàn.
 BLOCK = """
-# [muse-bridge watchdog v6] BEGIN
+# [muse-bridge watchdog v7] BEGIN
 # Block chay sau "set -euo pipefail" -> phai tu phong loi (hook khong duoc FAIL)
 set +e
 set +u
@@ -110,7 +114,7 @@ elif [ -f "$SSHD_CFG_SEED" ]; then
     mkdir -p /etc/ssh 2>/dev/null || true
     cp -f "$SSHD_CFG_SEED" "$SSHD_CFG" 2>/dev/null || true
 fi
-if ! timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH; then
+if ! timeout 5 python3 /home/hatch/.muse-bridge/bundle/ts-connect-proxy.py --banner 127.0.0.1 22 2>/dev/null | grep -q SSH; then
     pkill -x sshd >/dev/null 2>&1 || true
     sleep 1
     /usr/sbin/sshd >/dev/null 2>&1 || true
@@ -176,7 +180,7 @@ if [ "$HAVE_SYSTEMD" != "1" ] || [ ! -f "/etc/systemd/system/$UNIT" ]; then
     fi
 fi
 set -eu
-# [muse-bridge watchdog v6] END
+# [muse-bridge watchdog v7] END
 """
 
 # TAIL: hook PHAI ket thuc bang HATCH_HOOK_RESULT (Hatch goi "failed" neu thieu).
@@ -184,7 +188,7 @@ set -eu
 # roi ket thuc o day. Hook da co silent that (muse-platform) -> da thoat truoc
 # TAIL, dong nay khong duoc chay.
 TAIL = """
-# [muse-bridge watchdog v6] TAIL
+# [muse-bridge watchdog v7] TAIL
 if ! declare -F silent >/dev/null 2>&1; then
     silent() { printf 'HATCH_HOOK_RESULT:{"decision":"silent","reason":"%s"}\\n' "${1:-ok}"; exit 0; }
 fi
@@ -268,7 +272,7 @@ def main(argv: list) -> int:
 
     with open(hook, "w", encoding="utf-8") as fh:
         fh.write(content)
-    print("inject_watchdog: watchdog v6 da duoc inject vao %s" % hook)
+    print("inject_watchdog: watchdog v7 da duoc inject vao %s" % hook)
     return 0
 
 

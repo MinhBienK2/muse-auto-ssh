@@ -31,12 +31,13 @@ LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 # tro sang noi khac khi can (test cung dung bien nay).
 SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v9"
+LOOP_VERSION="v10"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
-  # sshd "chay" chua du - phai tra loi banner tren :22
-  timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22; head -c 4 <&3' 2>/dev/null | grep -q SSH
+  # sshd "chay" chua du - phai tra loi banner tren :22.
+  # Dung python3: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3).
+  timeout 5 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null | grep -q SSH
 }
 
 ensure_authorized_keys() {

@@ -91,6 +91,21 @@ def read_proxy_helper() -> str:
         return ""
 
 
+def banner_probe_snippet() -> str:
+    """Sed banner_probe() tu helper Python -> snippet probe dung trong prompt.
+
+    Cat dung ham tu ban goc (khong chep tay) de prompt va container khong lech.
+    Bash /dev/tcp co the bi TAT trong bash build (vd Ubuntu bash 5.3) nen probe
+    phai bang python3.
+    """
+    src = read_proxy_helper()
+    start = src.find("def banner_probe(")
+    end = src.find("\ndef ", start + 1)
+    if start < 0 or end < 0:
+        return ""
+    return src[start:end].rstrip("\n")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="")
@@ -128,6 +143,7 @@ def main() -> int:
         "MUSE_BASE": MUSE_BASE,
         "MUSE_SPOOL": MUSE_SPOOL,
         "PROXY_PY": read_proxy_helper(),
+        "BANNER_PROBE": banner_probe_snippet(),
     }
 
     missing = []
@@ -142,8 +158,8 @@ def main() -> int:
     if not values["LOCAL_HOST"] or not values["LOCAL_PUBKEY"]:
         print("render_prompt: thieu host/public key - chay 'bridge.sh arm' truoc", file=sys.stderr)
         return 1
-    if not values["PROXY_PY"]:
-        print("render_prompt: thieu bridge/ts-connect-proxy.py", file=sys.stderr)
+    if not values["PROXY_PY"] or not values["BANNER_PROBE"]:
+        print("render_prompt: thieu bridge/ts-connect-proxy.py (hoac ham banner_probe)", file=sys.stderr)
         return 1
 
     if args.stdout:

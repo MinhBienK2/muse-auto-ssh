@@ -64,6 +64,10 @@ container bị đóng băng sẽ giữ chết port forward `2222`/`2223` và con
 sudo bash scripts/install_sshd_keepalive.sh
 ```
 
+> Dùng skill `/setup-ssh-muse` (Cách 1 ở Bước 2) thì **agent tự lo 2 lệnh sudo này**: nó tự cài
+> được bằng `sudo -n` thì cài luôn, cần mật khẩu thì đưa bạn đúng 1 lệnh rồi xác minh lại bằng
+> `doctor`. Ở đây (làm tay) thì bạn chạy trước cho khỏe.
+
 ### Bước 2 — kết nối một máy Muse MỚI
 
 Repo có **một prompt duy nhất** (`reference/MUSE_PROMPT.template.md` trong skill): chứa sẵn Tailscale
@@ -80,16 +84,21 @@ Gõ:
 
 Agent sẽ:
 
-1. **Hỏi bạn vài câu** (click được): tên SSH alias (mặc định `muse-001`, nếu đã có thì kê tiếp
+1. **Tự cài điều kiện tiên quyết**: kiểm tra & cài Tailscale, `sshd`, TOFU hook, sshd keepalive.
+   Phần nào tự cài được (qua `sudo -n`) thì agent tự cài; phần nào cần **mật khẩu sudo** thì agent
+   đưa bạn **đúng 1 lệnh** và hỏi, sau đó **chạy lại `doctor` để xác minh bằng file thật**.
+2. **Hỏi bạn vài câu** (click được): tên SSH alias (mặc định `muse-001`, nếu đã có thì kê tiếp
    `muse-002`…), cổng forward, profile Chrome.
-2. **Đăng ký host** (`arm` + `add-host`) → `ssh <alias>` là vào được ngay sau khi xong.
-3. **Sinh `setup_prompt.md`** ở gốc repo (bản copy của prompt đã điền thông số máy bạn) — file
+3. **Đăng ký host** (`arm` + `add-host`) → `ssh <alias>` là vào được ngay sau khi xong.
+4. **Sinh `setup_prompt.md`** ở gốc repo (bản copy của prompt đã điền thông số máy bạn) — file
    này **gitignore**, đừng commit.
-4. **DỪNG** và bảo bạn: copy file đó → dán vào chat **mới** của máy Muse.
-5. Muse làm xong sẽ báo **status block** (7 dòng `MUSE_HOST`, `MUSE_KEY`, `MUSE_PUBKEY`,
+5. Hỏi bạn: **tự dán** hay để **agent tự dán** (zero-touch — `bridge.sh onboard`, bạn không
+   phải paste gì).
+6. Nếu bạn tự dán: agent **DỪNG**, bạn copy file → dán vào chat **mới** của máy Muse. Muse làm
+   xong sẽ báo **status block** (7 dòng `MUSE_HOST`, `MUSE_KEY`, `MUSE_PUBKEY`,
    `MUSE_TUNNEL_PORT`, `MUSE_TUNNEL`, `MUSE_PERSISTENCE`, `MUSE_PROBE`) → bạn **paste nguyên
    block** vào lại đây.
-6. Agent đọc block đó: authorize key của container, đẩy bundle, chờ `PEER_STATE=OK`, rồi
+7. Agent đọc block đó: authorize key của container, đẩy bundle, chờ `PEER_STATE=OK`, rồi
    xác nhận bằng `ssh -o BatchMode=yes <alias> 'echo SSH_OK'` → **xong**, bạn `ssh <alias>`.
 
 Session bị ngắt giữa chừng thì gọi lại `/setup-ssh-muse --resume <alias>` — trạng thái nằm ở

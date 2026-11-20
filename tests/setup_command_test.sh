@@ -87,6 +87,16 @@ ok "truong hop Chrome profile"     has "$CMD" "--profile-dir"
 echo "== 7. xac nhan cuoi bang ssh <alias>"
 ok "command co kiem tra SSH_OK"    has "$CMD" "SSH_OK"
 
+echo "== 8. chang A2: tu lo dieu kien tien quyet + nhanh zero-touch"
+ok "co chang A2"                        has "$CMD" "Chặng A2"
+ok "co lenh install_tofu_hook.sh"       has "$CMD" "install_tofu_hook.sh"
+ok "co lenh install_sshd_keepalive.sh"  has "$CMD" "install_sshd_keepalive.sh"
+ok "co kiem tra tailscale"               has "$CMD" "tailscale ip -4"
+ok "dung sudo -n (khong treo cho mat khau)" has "$CMD" "sudo -n"
+ok "co buoc xac minh bang doctor"       bash -c '[ "$(grep -c doctor "$1")" -ge 3 ]' _ "$CMD"
+ok "co chon zero-touch o chang E"       has "$CMD" "zero-touch"
+ok "huong dan user chay 1 lenh"         has "$CMD" "sudo bash scripts/install_tofu_hook.sh"
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "ALL TESTS: PASS"

@@ -1,6 +1,6 @@
 ---
 name: setup-ssh-muse
-description: Kết nối 1 máy Muse MỚI — hỏi vài câu, sinh setup_prompt.md để dán sang máy Muse, chờ paste output của Muse rồi hoàn tất (sau đó `ssh <alias>` là vào được). Dùng khi người dùng gõ /setup-ssh-muse, "setup ssh muse", "kết nối máy Muse mới", "nối máy muse", "onboard máy Muse mới", "dán prompt vào Muse", "prompt một lần là xong", one-shot prompt, hoặc muốn agent tự setup 2 chiều với 1 container Muse mới.
+description: Kết nối 1 máy Muse MỚI — tự cài điều kiện tiên quyết (Tailscale/sshd/TOFU), hỏi vài câu, sinh setup_prompt.md để dán sang máy Muse, chờ paste output của Muse rồi hoàn tất (sau đó `ssh <alias>` là vào được). Dùng khi người dùng gõ /setup-ssh-muse, "setup ssh muse", "kết nối máy Muse mới", "nối máy muse", "onboard máy Muse mới", "dán prompt vào Muse", "prompt một lần là xong", one-shot prompt, hoặc muốn agent tự setup 2 chiều với 1 container Muse mới.
 argument-hint: "[ten-ssh] [--resume <alias>]"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
@@ -9,9 +9,12 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 
 Bạn là **Agent Ngoài** (hợp đồng ở `LOCAL_AGENT.md`). Nhiệm vụ của lệnh này:
 
-1. Chuẩn bị máy + hỏi user vài câu (tên SSH, cổng, profile Chrome).
+1. Chuẩn bị máy: **tự kiểm tra & cài điều kiện tiên quyết** (Tailscale, sshd, TOFU hook,
+   sshd keepalive) — phần nào tự cài được thì agent tự cài, phần nào cần mật khẩu `sudo` thì
+   đưa user đúng 1 lệnh và hỏi; xong hỏi user vài câu (tên SSH, cổng, profile Chrome).
 2. Sinh **`setup_prompt.md`** — file để user gửi sang chat của máy Muse **mới tinh**.
-3. **DỪNG** chờ user paste lại output (status block) mà máy Muse vừa báo.
+3. **DỪNG** chờ user paste lại output (status block) mà máy Muse vừa báo — hoặc tự dán hộ
+   (zero-touch) nếu user thích.
 4. Từ output đó: authorize key của container, đẩy bundle, chờ kênh sống, xác nhận
    `ssh <alias>` vào được.
 
@@ -47,7 +50,36 @@ Gợi ý tên SSH do user gõ: `$ARGUMENTS` (rỗng = tự đặt).
 5. ```bash
    bash scripts/bridge.sh doctor
    ```
-   Ghi nhận 2 cảnh báo: TOFU hook và sshd keepalive.
+   Ghi nhận cảnh báo nào (TOFU / keepalive / sshd) → xử lý ở **Chặng A2**.
+
+## Chặng A2 — Điều kiện tiên quyết (agent tự lo; chỉ hỏi user khi `sudo` cần mật khẩu)
+
+Đây là phần agent **tự làm trước**, để sau đó user chỉ còn đúng 2 việc tay (dán prompt + paste
+status block). Bốn thứ phải có:
+
+| # | Cần | Kiểm tra | Tự cài được? |
+|---|---|---|---|
+| 1 | Tailscale (IP để container gọi về) | `tailscale ip -4` | ✗ — user cài + `tailscale up` |
+| 2 | sshd nghe `:22` | `ss -tln \| grep ':22'` | ✓ `sudo -n systemctl enable --now ssh` |
+| 3 | TOFU hook (container MỚI tự được pin key) | `test -f /etc/ssh/sshd_config.d/99-muse-bridge.conf` | ✓ `sudo -n bash scripts/install_tofu_hook.sh` |
+| 4 | sshd keepalive (session treo tự nhả port) | `test -f /etc/ssh/sshd_config.d/98-muse-bridge-keepalive.conf` | ✓ `sudo -n bash scripts/install_sshd_keepalive.sh` |
+
+**Vòng lặp — lặp tới khi đủ cả 4, mỗi vòng xác minh bằng file thật (không tin lời nói):**
+
+1. `bash scripts/bridge.sh doctor` → đọc cảnh báo.
+2. Mục nào thiếu mà **tự cài được** → chạy lệnh trong bảng với **`sudo -n`** (non-interactive: fail
+   ngay nếu cần mật khẩu; **không** chạy `sudo` có mật khẩu → lệnh treo chờ nhập).
+3. Mục **cần mật khẩu** → **hỏi user bằng `AskUserQuestion`**, đưa **đúng 1 lệnh** cần chạy:
+   > `sudo bash scripts/install_tofu_hook.sh`  (hoặc `sudo bash scripts/install_sshd_keepalive.sh`)
+
+   User báo "xong" → **chạy lại `bash scripts/bridge.sh doctor`** để xác minh. Còn thiếu → hỏi lại,
+   không đi tiếp.
+4. Tailscale: `tailscale ip -4` rỗng → bảo user `sudo tailscale up` + đăng nhập. Có IP → **in IP ra**
+   cho user thấy (IP này nằm trong prompt dán sang Muse).
+
+> **Phía container:** cell Muse MỚI cần node Tailscale riêng. Nếu Agent Muse báo "cần duyệt node"
+> kèm link `login.tailscale.com` → bảo user mở link duyệt, rồi chạy lại
+> `bash scripts/bridge.sh provision --host <alias>`.
 
 ## Chặng B — Hỏi user (dùng `AskUserQuestion`, hỏi 1 lần, 3 câu)
 
@@ -84,10 +116,9 @@ bash scripts/bridge.sh add-host --host <alias> [--port <port>] --label "<alias>"
 ```
 
 - `--profile-dir` chỉ cần khi profile ≠ `Default` (account Muse khác).
-- Nếu `doctor` báo **thiếu TOFU hook** hoặc **thiếu keepalive** → in đúng 2 lệnh này để user
-  chạy (`sudo bash scripts/install_tofu_hook.sh`, `sudo bash scripts/install_sshd_keepalive.sh`)
-  rồi **hỏi user bằng AskUserQuestion** "đã chạy xong chưa?" — không tự chạy sudo.
-  Thiếu TOFU thì máy Muse **mới** không được sshd tự pin key → dán 1 lần sẽ hỏng ở Bước 3.
+- Điều kiện tiên quyết (Tailscale, sshd, TOFU, keepalive) đã xử lý ở **Chặng A2**. Chặng C chỉ
+  chạy lệnh trên. Nếu A2 còn cảnh báo → **quay lại A2**, đừng đi tiếp: thiếu TOFU thì máy Muse
+  **mới** không được sshd tự pin key → dán 1 lần sẽ hỏng ở Bước 3 của prompt.
 - `add-host` tự viết khối `Host <alias>` vào `~/.ssh/config` → user `ssh <alias>` là vào.
 - Cập nhật `setup_state.json`: `phase=armed`.
 
@@ -110,11 +141,20 @@ cp .muse-hosts/<alias>/MUSE_PROMPT.md setup_prompt.md
   có thể treo). Driver tự bấm **Allow** cho hộp phê duyệt; nếu vẫn bị chặn thì báo user bấm tay —
   đừng giả vờ xong. Mặc định vẫn là user tự dán (bước 1–2 ở Chặng E).
 
-## Chặng E — Bàn giao và **DỪNG**
+## Chặng E — Bàn giao (hoặc tự dán) và **DỪNG**
 
 Cập nhật `setup_state.json`: `phase=waiting_muse` (giữ `muse_output` rỗng).
 
-Sau đó **kết thúc lượt** bằng đúng 3 điều:
+**Hỏi user 1 câu bằng `AskUserQuestion`** — "Bạn tự dán prompt, hay để agent tự dán?"
+
+| Chọn | Agent làm gì |
+|---|---|
+| **Để agent tự dán (zero-touch)** | `bash scripts/bridge.sh onboard --host <alias>` — tự dán qua driver web, tự bấm Allow, chờ status block, authorize key, đồng bộ port, provision. Xong → **nhảy thẳng sang bước 5–7 của Chặng F** (chờ `PEER_STATE=OK` + `SSH_OK`), user không phải paste gì |
+| **Tôi tự dán** | flow bên dưới |
+
+Zero-touch mà driver bị chặn → báo user bấm tay, **đừng giả vờ xong**; chuyển sang flow "tôi tự dán".
+
+**Nếu user chọn "tôi tự dán"** → kết thúc lượt bằng đúng 3 điều:
 
 1. File cần gửi: `<đường dẫn tuyệt đối của setup_prompt.md>` — user mở file đó, copy
    **toàn bộ nội dung**.
@@ -123,9 +163,8 @@ Sau đó **kết thúc lượt** bằng đúng 3 điều:
    `MUSE_TUNNEL_PORT`, `MUSE_TUNNEL`, `MUSE_PERSISTENCE`, `MUSE_PROBE` → user **paste nguyên
    block** (giữ đúng tên `KEY=value`) vào lại đây.
 
-⛔ **DỪNG NGAY.** Không tự đoán port, không tự gọi `provision`, không hỏi thêm bằng
-`AskUserQuestion` ở chặng này — user sẽ tự paste output của Muse. Chỉ tiếp tục khi user
-paste.
+⛔ **DỪNG NGAY** (ở nhánh "tôi tự dán"). Không tự đoán port, không tự gọi `provision`, không hỏi
+thêm bằng `AskUserQuestion` — user sẽ tự paste output của Muse. Chỉ tiếp tục khi user paste.
 
 ## Chặng F — Khi user paste output của Muse
 
@@ -197,6 +236,11 @@ Nếu user gọi `/setup-ssh-muse --resume <alias>`: đọc `.muse-hosts/<alias>
   render lại; file đã render (`MUSE_PROMPT.md`, `setup_prompt.md`) là artifact, gitignore,
   không commit.
 - `bash scripts/bridge.sh selftest` phải in `ALL TESTS: PASS` trước khi đi tiếp.
+- **Chặng A2 phải sạch cảnh báo** (Tailscale / sshd / TOFU / keepalive) trước khi sang Chặng B —
+  thiếu TOFU thì cell MỚI hỏng ở Bước 3 của prompt.
+- **Không chạy `sudo` có mật khẩu** (sẽ treo chờ nhập). Chỉ dùng `sudo -n`; nếu cần mật khẩu →
+  hỏi user bằng `AskUserQuestion` và đưa đúng 1 lệnh.
 - **Không kill tunnel**, không `systemctl stop` service của Muse — kênh phải sống mãi.
-- **Không bỏ qua Chặng E**: không tự nhảy sang provision khi user chưa paste output.
+- **Không bỏ qua Chặng E**: không tự nhảy sang provision khi user chưa paste output (trừ nhánh
+  zero-touch mà user đã chọn ở Chặng E).
 - Hỏi user bằng `AskUserQuestion` (click được), không hỏi bằng lời trong chat.

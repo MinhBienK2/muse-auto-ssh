@@ -154,6 +154,9 @@ def scan(src, hosts_dir):
             if mail and mail not in emails:
                 emails.append(mail)
         urls = urls or 0
+        # session = None -> khong doc duoc Cookies (profile chua tung mo Chrome?)
+        # KHONG phai bang 0: "khong biet" va "da logout" la 2 trang thai khac nhau.
+        known = session is not None
         session = session or 0
         records.append(
             {
@@ -162,15 +165,20 @@ def scan(src, hosts_dir):
                 "email": emails[0] if emails else "",
                 "emails": emails,
                 "muse_urls": urls,
-                "muse_session": session,
-                "logged_in": session > 0,
+                "muse_session": session if known else None,
+                "logged_in": (session > 0) if known else None,
                 "has_muse": session > 0 or urls > 0,
                 "used_by": used.get(name, []),
             }
         )
-    # Da co phien dang nhap truoc, sau do theo so URL muse.ai giam dan.
+    # Da co phien dang nhap truoc, sau do theo so URL muse.ai giam dan;
+    # profile doc khong duoc cookie (unknown) nam cuoi.
     records.sort(
-        key=lambda r: (not r["logged_in"], not r["has_muse"], -r["muse_urls"], r["profile_dir"])
+        key=lambda r: (
+            0 if r["logged_in"] is True else (1 if r["logged_in"] is False else 2),
+            -r["muse_urls"],
+            r["profile_dir"],
+        )
     )
     return records
 
@@ -184,15 +192,16 @@ def print_text(records):
         % ("PROFILE_DIR", "DISPLAY_NAME", "EMAIL", "MUSE_URLS", "SESSION", "LOGGED_IN", "USED_BY")
     )
     for r in records:
+        logged = {True: "yes", False: "no", None: "?"}[r["logged_in"]]
         print(
-            "%-14s %-18s %-34s %8d %7d %9s  %s"
+            "%-14s %-18s %-34s %8d %7s %9s  %s"
             % (
                 r["profile_dir"],
                 r["display_name"],
                 r["email"] or "-",
                 r["muse_urls"],
-                r["muse_session"],
-                "yes" if r["logged_in"] else "no",
+                "-" if r["muse_session"] is None else r["muse_session"],
+                logged,
                 ",".join(r["used_by"]) or "-",
             )
         )

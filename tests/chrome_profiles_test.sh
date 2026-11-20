@@ -147,12 +147,17 @@ check(d["used_by"] == ["muse"], "used_by: %r" % d["used_by"])
 
 p2 = recs["Profile 2"]
 check(p2["logged_in"] is False, "Profile 2 logged_in: %r" % p2["logged_in"])
+check(p2["muse_session"] == 0, "Profile 2 muse_session: %r" % p2["muse_session"])
 check(p2["has_muse"] is True, "Profile 2 has_muse: %r" % p2["has_muse"])
 check(p2["muse_urls"] == 1, "Profile 2 muse_urls: %r" % p2["muse_urls"])
 check(p2["used_by"] == ["muse3"], "Profile 2 used_by: %r" % p2["used_by"])
 
+# Profile 3 khong co file Cookies/History -> KHONG doc duoc cookie.
+# Phai phan biet "khong biet" (None) voi "da logout" (False).
 p3 = recs["Profile 3"]
 check(p3["has_muse"] is False, "Profile 3 has_muse: %r" % p3["has_muse"])
+check(p3["logged_in"] is None, "Profile 3 logged_in: %r" % p3["logged_in"])
+check(p3["muse_session"] is None, "Profile 3 muse_session: %r" % p3["muse_session"])
 check(p3["used_by"] == ["muse4"], "Profile 3 used_by: %r" % p3["used_by"])
 
 if errs:
@@ -175,6 +180,7 @@ rc "chay --text" "$code"
 ok "bang co tieu de" grep -q "PROFILE_DIR" "$TMP/out.txt"
 ok "bang co email" grep -q "a@example.invalid" "$TMP/out.txt"
 ok "bang co profile khong dung" grep -q "Profile 3" "$TMP/out.txt"
+ok "profile doc khong duoc cookie -> LOGGED_IN=?" grep -q "?" "$TMP/out.txt"
 
 echo "== 3. khong co Chrome -> khong loi"
 code=0

@@ -104,13 +104,18 @@ Hỏi bằng `AskUserQuestion` (user trả lời nhanh bằng click), **không**
      host nào đang dùng) → user thấy đúng tên và mail, không phải đoán.
    - Hỏi bằng `AskUserQuestion`, **nhãn lựa chọn phải kèm email**, ví dụ:
      `Profile 15 — Minh — email-cua-ban@gmail.com`.
-   - Tối đa **3 lựa chọn** (giới hạn của `AskUserQuestion`) = các profile **đang đăng nhập Muse**
-     (cookie còn sống, nhiều nhất trước) + `Other: gõ tay tên profile`.
-   - **Chỉ có 1 profile** → **vẫn hỏi** (1 lựa chọn + `Other`) để user xác nhận — không tự chọn thầm.
+   - **Tối đa 4 lựa chọn** (`AskUserQuestion` tự thêm mục `Other` để user gõ tay) = các profile
+     **đang đăng nhập Muse** (`logged_in=true`, cookie còn sống, nhiều nhất trước).
+   - **Chỉ có 1 profile** → **vẫn hỏi** (1 lựa chọn + mục `Other` của tool) để user xác nhận —
+     không tự chọn thầm.
+   - `LOGGED_IN=?` = không đọc được cookie profile đó → **không khẳng định** là đã logout, nói rõ
+     điều đó cho user rồi để user chọn.
    - Profile nào đang có host dùng → nói rõ "host `muse3` đang dùng profile này" **trước khi** user
-     chọn (dùng chung account Muse hay không là tuỳ user).
+     chọn (dùng chung account Muse hay không là tuỳ user). Cột `USED_BY` lấy từ `web_profile_dir`
+     trong card host (thiếu → `Default`) — là **quy ước đăng ký**, không phải sự thật runtime.
    - **Giá trị lưu vào `--profile-dir` là tên thư mục** (`Profile 15`), **không phải email**.
-   - Không có Chrome / không profile nào → vẫn hỏi (cho user gõ tay qua `Other`, hoặc `Default`).
+   - Không tìm thấy Chrome profile nào → in ra `(không tìm thấy Chrome profile nào)` rồi **vẫn hỏi**
+     (user gõ tay qua `Other`, hoặc `Default`).
 
 Alias được dùng **làm host id** trong repo (`.muse-hosts/<alias>/`, spool, `~/.ssh/config`)
 → sau khi xong user gõ đúng `ssh <alias>` là vào container.

@@ -4,10 +4,11 @@
 #
 #   bash scripts/check_hygiene.sh
 #
-# Kiem tra 2 thu:
+# Kiem tra 3 thu:
 #   1) file tracked khong chua gia tri rieng cua mot may (IP Tailscale, user,
 #      email, duong dan home cua nguoi viet)
 #   2) khong con stub / TODO / placeholder "de sau lam"
+#   3) khong dung bash /dev/tcp (bash build co the TAT -> probe luon fail)
 #
 # Cac gia tri sau day duoc PHEP:
 #   100.64.0.0/10        - dai CGNAT cua Tailscale (khong phai IP may)
@@ -71,6 +72,20 @@ if [ -n "$stub_hits" ]; then
   echo "$stub_hits" | sed 's/^/    /' >&2
 else
   ok "khong con TODO/stub"
+fi
+
+# --- 3) bash /dev/tcp ------------------------------------------------------
+# Loi that (20/11): bash 5.3 Ubuntu TAT /dev/tcp -> probe sshd luon fail ->
+# watchdog pkill sshd moi 15s -> tunnel flap. Probe phai bang python3
+# (ts-connect-proxy.py --banner). Chi cam trong CODE; comment giai thich duoc phep.
+# Bat dung cu phap THAT (/dev/tcp/host/port trong redirect/exec), khong bat
+# comment/docstring nhac den no.
+devtcp_hits="$(git grep -nE '[<>][&]?[[:space:]]*/dev/tcp/' -- bridge scripts tests '.agents/setup-ssh-muse/reference' 2>/dev/null || true)"
+if [ -n "$devtcp_hits" ]; then
+  fail "dung bash /dev/tcp (probe phai bang python3 ts-connect-proxy.py --banner):"
+  echo "$devtcp_hits" | sed 's/^/    /' >&2
+else
+  ok "khong dung bash /dev/tcp trong code"
 fi
 
 if [ "$fails" = "0" ]; then

@@ -1,3 +1,11 @@
+<!-- NGAN SACH PROMPT: ban render phai < 18000 B (tran bo loc Muse ~20 KB).
+     Do bang DUNG tham so test cua tests/prompt_test.sh (spool/bundle-dir dai hon
+     may that ~70 B), khong do bang tham so may that:
+       python3 scripts/render_prompt.py --host 100.64.0.1 --user testuser \
+         --pubkey "ssh-ed25519 AAAAPROBE" --port 2225 --spool /tmp/muse-prompt-test.XXXX/spool \
+         --host-id muse4 --hostname probehost --bundle-dir /tmp/muse-prompt-test.XXXX/bundle \
+         --stdout | wc -c
+     Guardrail: scripts/check_prompt_sync.sh + tests/prompt_test.sh. -->
 # PROMPT CHO AGENT MUSE — dán nguyên file này vào chat của Agent Muse
 
 > Sinh tự động bởi `scripts/render_prompt.py` từ
@@ -88,7 +96,7 @@ cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /
 echo KEY_OK
 ```
 
-## Bước 2 — Bảo đảm `sshd` và `socat` của bạn chạy
+## Bước 2 — Bảo đảm `sshd` của bạn chạy
 
 Kiểm tra `/usr/sbin/sshd` đã có chưa. **Nếu đã có thì chỉ cần tạo `/run/sshd` (chmod 755) rồi
 chạy `/usr/sbin/sshd`, đừng cài gì cả** — cài `apt` trong container hay bị treo.
@@ -115,18 +123,7 @@ PYPROBE
 Fallback nếu `SSHD_FAIL`: `pkill -x sshd; mkdir -p /run/sshd; chmod 755 /run/sshd; /usr/sbin/sshd;`
 rồi kiểm tra lại banner.
 
-`socat` là phụ thuộc của proxy helper chính thức. Cài **có giới hạn thời gian** (không được
-treo): nếu không có `socat`, bước 5 sẽ dùng proxy Python (Bước 3) thay thế.
-
-```bash
-command -v socat >/dev/null 2>&1 || {
-  export http_proxy=http://hatch-egress-proxy:3130 https_proxy=http://hatch-egress-proxy:3130
-  export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
-  timeout 45 apt-get update -qq >/dev/null 2>&1 || true
-  timeout 45 apt-get install -y -qq --no-install-recommends socat >/dev/null 2>&1 || true
-}
-command -v socat >/dev/null 2>&1 && echo SOCAT_OK || echo SOCAT_MISSING
-```
+Không cần cài `socat`: proxy helper Python (Bước 3) thay thế hoàn toàn, không phụ thuộc gói ngoài.
 
 ## Bước 3 — Tạo proxy helper rồi thử SSH sang máy tôi
 

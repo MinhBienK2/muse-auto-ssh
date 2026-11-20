@@ -261,6 +261,9 @@ Nếu user gọi `/setup-ssh-muse --resume <alias>`: đọc `.muse-hosts/<alias>
   render lại; file đã render (`MUSE_PROMPT.md`, `setup_prompt.md`) là artifact, gitignore,
   không commit.
 - `bash scripts/bridge.sh selftest` phải in `ALL TESTS: PASS` trước khi đi tiếp.
+- **Sửa repo giữa chừng**: chỉ chạy test đơn của phần sửa (`bash tests/<tên>_test.sh`); full
+  suite/selftest chạy **đúng 1 lần trước commit** — đừng chạy lại toàn bộ sau mỗi cụm sửa,
+  đừng chạy 2 bản suite song song.
 - **Chặng A2 phải sạch cảnh báo** (Tailscale / sshd / TOFU / keepalive) trước khi sang Chặng B —
   thiếu TOFU thì cell MỚI hỏng ở Bước 3 của prompt.
 - **Không chạy `sudo` có mật khẩu** (sẽ treo chờ nhập). Chỉ dùng `sudo -n`; nếu cần mật khẩu →

@@ -73,3 +73,10 @@ git config core.hooksPath .githooks
 - `openssh-server` (`/usr/sbin/sshd`) không nằm trong base image container → bị mất mỗi khi container refresh (vì `/` là overlay tạm). Phải luôn lưu sẵn các gói deb ở `/home/hatch/.muse-bridge/deb/` (vùng bền vững btrfs) để tự cài lại tức thì bằng `dpkg -i` offline (< 1s); tuyệt đối không trông cậy vào `apt-get` qua proxy (rất hay timeout/chặn).
 - `/run/sshd` (tmpfs) bị mất mỗi lần reboot và umask trong daemon/hook có thể sinh ra quyền `0770` → `sshd` crash lập tức do Privilege Separation. Luôn `chmod 755 /run/sshd /var/run/sshd`.
 - Host keys `/etc/ssh/ssh_host_*_key` bị wipe khi container refresh → phải lưu bền ở `/home/hatch/.muse-bridge/ssh_host/` để khôi phục lại, tránh máy ngoài cảnh báo đổi fingerprint.
+- Tailscale trong container chạy **userspace-networking → không nhận SSH inbound thẳng vào IP
+  container** (`ssh root@<ip-container>` luôn refused). Kênh duy nhất là reverse tunnel container
+  gọi ra; sửa container thì đi qua `ssh <alias>` (tunnel) hoặc nhờ Muse trong chat.
+- Host card thật nằm ở **`~/.muse-bridge/hosts/<id>.json`** (runtime); `.muse-hosts/` trong repo chỉ
+  chứa artifact (prompt render, `setup_state.json`, log web). Đừng tìm config kết nối trong repo.
+- `provision`/`push` tự refresh bundle local trước khi đẩy; container pull qua `~/.muse-bridge/bundle`
+  theo `VERSION`. Đẩy bundle bằng tay mà quên refresh = đẩy bản cũ (watchdog/loop không lên đời).

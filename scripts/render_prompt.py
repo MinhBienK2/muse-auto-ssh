@@ -130,6 +130,9 @@ def main() -> int:
         return 1
     with open(TEMPLATE, "r", encoding="utf-8") as fh:
         text = fh.read()
+    # Comment HTML dau file la ghi chu cho nguoi bao tri (ngan sach prompt...)
+    # -> cat khoi ban render de khong ton ngan sach va khong lo vao chat Muse.
+    text = re.sub(r"<!--.*?-->\n?", "", text, flags=re.DOTALL)
 
     values = {
         "LOCAL_HOST": args.host or detect_host(),

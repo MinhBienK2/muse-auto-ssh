@@ -371,6 +371,13 @@ muse_provision() {
   ssh_host_push "$port" "$SCRIPT_DIR/ts-socat-proxy.sh" "cat > /root/.muse-bridge/ts-socat-proxy.sh" || true
   ssh_host_push "$port" "$SCRIPT_DIR/ts-connect-proxy.py" "cat > /root/.muse-bridge/ts-connect-proxy.py" || true
   ssh_host_push "$port" "$SCRIPT_DIR/reverse-tunnel.sh" "cat > /root/.muse-bridge/reverse-tunnel.sh" || true
+  # Mirror vao bundle/ (duong container pull_updates doc) + VERSION de container
+  # thay doi phien ban -> tu keo ban moi. Thieu VERSION = container giu ban cu mai.
+  local f
+  for f in bridge.py muse_side.sh inject_watchdog.py reverse-tunnel.sh ts-socat-proxy.sh ts-connect-proxy.py; do
+    ssh_host_push "$port" "$STATE_DIR/bundle/$f" "cat > /root/.muse-bridge/bundle/$f" || true
+  done
+  ssh_host_push "$port" "$STATE_DIR/bundle/VERSION" "cat > /root/.muse-bridge/bundle/VERSION" || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge/reverse-tunnel.sh /root/.muse-bridge/ts-socat-proxy.sh" >/dev/null 2>&1 || true
   ssh_host "$port" "chmod 700 /root/.muse-bridge /root/.muse-bridge/bridge.py /root/.muse-bridge/muse_side.sh /root/.muse-bridge/inject_watchdog.py; chmod 600 /root/.muse-bridge/bridge.py" >/dev/null 2>&1 || true
   if [ -d "$STATE_DIR/bundle/deb" ]; then
@@ -1150,6 +1157,11 @@ cmd_doctor() {
 }
 
 # ------------------------------------------------------------------ dispatch
+# dung cho test: source file nay roi goi truc tiep cac ham (nhu muse_side.sh)
+if [ "${MUSE_BRIDGE_LIB_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 case "${1:-}" in
   arm)       shift; cmd_arm "$@" ;;
   status)    shift; cmd_status "$@" ;;
@@ -1172,6 +1184,10 @@ case "${1:-}" in
   repair)   shift; cmd_repair "$@" ;;
   reprovision) shift; cmd_reprovision "$@" ;;
   provision) shift; parse_flags "$@"; require_host
+              # Refresh bundle local TRUOC (nhu cmd_push): container pull qua
+              # ~/.muse-bridge/bundle -> khong refresh thi day ban cu (v6/v9)
+              # du repo da sua.
+              install_bundle_local
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;

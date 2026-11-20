@@ -104,6 +104,38 @@ assert alt["web_clone_dir"] != plain["web_clone_dir"], (plain, alt)
 PY2
 if [ "$code" = "0" ]; then echo "  ok   - card luu profile/cdp/clone rieng"; else echo "  FAIL - card luu profile/cdp/clone rieng"; fails=$((fails + 1)); fi
 
+echo "== 6. link bi boc qua l.meta.ai van lay duoc URL that"
+# Loi that: Muse tra link duyet node Tailscale nhung web boc qua redirect
+# l.meta.ai/?u=... va cat token khoi innerText -> reply mat link hoan toan.
+code=0
+python3 - "$REPO_DIR" <<'PY3' || code=$?
+import json, sys
+sys.path.insert(0, sys.argv[1] + "/bridge")
+import muse_web as mw
+
+wrapped = ("https://l.meta.ai/?u=https%3A%2F%2Flogin.tailscale.com%2Fa%2Fgc2744ef8237bd6fe"
+           "&h=AUBODStZmp2WNxj")
+assert mw.unwrap_link(wrapped) == "https://login.tailscale.com/a/gc2744ef8237bd6fe"
+assert mw.unwrap_link("https://muse.ai/thread/x") == "https://muse.ai/thread/x"
+
+class FakeCDP:
+    def evaluate(self, js, timeout=60):
+        return json.dumps([wrapped, "https://muse.ai/thread/x", wrapped])
+
+out = mw.with_links(FakeCDP(), "mo link nay de duyet node")
+assert "LINKS:" in out
+assert "https://login.tailscale.com/a/gc2744ef8237bd6fe" in out
+assert out.count("gc2744ef8237bd6fe") == 1, "link trung phai khu bot"
+assert "l.meta.ai" not in out.split("LINKS:")[1]
+
+class NoLinks:
+    def evaluate(self, js, timeout=60):
+        return "[]"
+
+assert mw.with_links(NoLinks(), "abc") == "abc", "khong link thi giu nguyen text"
+PY3
+if [ "$code" = "0" ]; then echo "  ok   - unwrap l.meta.ai + LINKS trong reply"; else echo "  FAIL - unwrap l.meta.ai + LINKS trong reply"; fails=$((fails + 1)); fi
+
 echo
 if [ "$fails" = "0" ]; then echo "MUSE_WEB_PROFILE_TEST: PASS"; else echo "MUSE_WEB_PROFILE_TEST: FAIL ($fails)"; fi
 exit "$fails"

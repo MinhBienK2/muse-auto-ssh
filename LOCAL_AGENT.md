@@ -21,7 +21,7 @@ Bạn là **Agent Ngoài**: AI agent chạy trên máy tính cá nhân của ng�
 4. **Mỗi lần trả lời người dùng, kiểm tra hộp thư trước** (mục 4).
 5. **Trả lời đúng hạn**: tin `TASK`/`QUESTION` phải có tin trả lời kèm `reply_to`.
 6. **Không hard-code giá trị của máy này vào mã.** IP Tailscale, username, path → lấy từ
-   `.muse-hosts/<id>.json` hoặc auto-detect (`tailscale ip -4`, `id -un`). Repo này được kéo về máy
+   `~/.muse-bridge/hosts/<id>.json` hoặc auto-detect (`tailscale ip -4`, `id -un`). Repo này được kéo về máy
    người khác dùng.
 
 ---
@@ -92,6 +92,11 @@ bash scripts/bridge.sh onboard --host muse2
 > Driver web **tự bấm Allow once** cho các hộp "Approval required" (`muse_web.py approve`). Nếu vẫn
 > bị chặn, báo user bấm tay — đừng giả vờ xong.
 
+> **Đối thoại với Muse qua driver**: gửi tin ngắn bằng `muse_web.py say --file <tin.md> --thread <url>
+> --wait-for '<regex>'` (tự chờ trả lời), đọc lại bằng `reply --out <file>`. Đừng tự viết vòng poll
+> `sleep` + `reply`. Reply có khối `LINKS:` cuối file — URL thật đã giải mã redirect `l.meta.ai`
+> (link duyệt node Tailscale hay bị cắt token khỏi text hiển thị, chỉ còn trong href).
+
 ### 3.2. Thủ công (khi agent không tự động hoá được trình duyệt)
 
 ```bash
@@ -150,7 +155,8 @@ bash scripts/bridge.sh add-host --host muse3 --port 2224
 ```
 
 Mỗi host một cổng forward, một SSH alias (`ssh muse3`), một spool riêng. Thông tin kết nối nằm ở
-`.muse-hosts/<id>.json` **trong repo nhưng gitignored** → có trên máy bạn, không push lên Git.
+**`~/.muse-bridge/hosts/<id>.json`** (runtime, ngoài repo); `.muse-hosts/<id>/` trong repo (gitignored)
+chỉ chứa artifact theo host: `MUSE_PROMPT.md`, `setup_state.json`, log driver web.
 
 ### 6.1 Host dùng account Chrome khác
 

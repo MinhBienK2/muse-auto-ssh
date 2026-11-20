@@ -33,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 
 DEFAULT_URL = "https://muse.ai/"
@@ -461,6 +462,50 @@ def assistant_text(cdp: CDP, last: int = 4) -> str:
     return cdp.evaluate(js) or ""
 
 
+def unwrap_link(url: str) -> str:
+    """Web Muse boc link qua redirect l.meta.ai/?u=<url-encoded> va cat token
+    khoi text hien thi -> phai giai ma param u= moi lay duoc URL that
+    (vd link duyet node login.tailscale.com/a/<token>)."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        if parts.netloc.endswith("l.meta.ai"):
+            target = urllib.parse.parse_qs(parts.query).get("u", [""])[0]
+            if target:
+                return target
+    except ValueError:
+        pass
+    return url
+
+
+def chat_links(cdp: CDP, last: int = 6) -> list:
+    """URL that trong cac bubble hoi thoai gan nhat (href da unwrap redirect)."""
+    js = (
+        "(() => { const b=[...document.querySelectorAll('div.hatch-chat-groupable-bubble')]"
+        ".slice(-" + str(last) + ");"
+        " return JSON.stringify(b.flatMap(e => [...e.querySelectorAll('a[href]')]"
+        ".map(a => a.href))); })()"
+    )
+    raw = cdp.evaluate(js) or "[]"
+    try:
+        hrefs = json.loads(raw)
+    except ValueError:
+        return []
+    out = []
+    for h in hrefs:
+        u = unwrap_link(h)
+        if u.startswith("http") and u not in out:
+            out.append(u)
+    return out
+
+
+def with_links(cdp: CDP, text: str) -> str:
+    """Noi them khoi LINKS= de URL khong bi mat khi innerText cat token."""
+    links = chat_links(cdp)
+    if not links:
+        return text
+    return text + "\n\nLINKS:\n" + "\n".join(links)
+
+
 def wait_for(cdp: CDP, pattern: str, timeout: float) -> str:
     """Cho den khi regex khop voi phan hoi thoai moi (bo qua noi dung do nguoi dan)."""
     rx = re.compile(pattern)
@@ -523,7 +568,7 @@ def cmd_send(args) -> int:
                 if not args.wait_for or re.search(args.wait_for, newest):
                     break
             time.sleep(4)
-        text = "\n\n".join(replies[-3:]) if replies else conversation_text(cdp)
+        text = with_links(cdp, "\n\n".join(replies[-3:]) if replies else conversation_text(cdp))
         if args.reply_out:
             with open(args.reply_out, "w", encoding="utf-8") as fh:
                 fh.write(text)
@@ -565,10 +610,10 @@ def cmd_say(args) -> int:
             deadline = time.time() + args.timeout
             while time.time() < deadline:
                 approve(cdp, args.approve_mode, 3)
-                if re.search(args.wait_for, assistant_text(cdp) or conversation_text(cdp)):
+                if re.search(args.wait_for, with_links(cdp, assistant_text(cdp) or conversation_text(cdp))):
                     break
                 time.sleep(3)
-        print(conversation_text(cdp)[-4000:])
+        print(with_links(cdp, conversation_text(cdp))[-4000:])
         return 0
     finally:
         cdp.close()
@@ -656,12 +701,13 @@ def cmd_reply(args) -> int:
             while time.time() < deadline:
                 approve(cdp, args.approve_mode, 3)
                 text = assistant_text(cdp) or conversation_text(cdp)
-                if re.search(args.wait_for, text):
+                if re.search(args.wait_for, with_links(cdp, text)):
                     break
                 time.sleep(3)
         else:
             approve(cdp, args.approve_mode, 3)
             text = page_text(cdp)
+        text = with_links(cdp, text)
         if args.out:
             with open(args.out, "w", encoding="utf-8") as fh:
                 fh.write(text)

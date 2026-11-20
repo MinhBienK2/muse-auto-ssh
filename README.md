@@ -147,8 +147,9 @@ bash scripts/bridge.sh inbox --host muse2     # thấy HELLO/REPORT của Muse
 ### Nhiều máy Muse trên cùng một máy
 
 Mỗi Muse host một cổng riêng (`2222`, `2223`, …), một SSH alias riêng (`ssh muse`, `ssh muse2`) và
-một spool riêng. Thông tin kết nối lưu ở `.muse-hosts/<id>.json` **trong repo nhưng đã gitignore**
-— tức là có trên máy bạn, không push lên Git.
+một spool riêng. Thông tin kết nối lưu ở **`~/.muse-bridge/hosts/<id>.json`** (runtime, ngoài repo)
+— có trên máy bạn, không push lên Git. `.muse-hosts/<id>/` trong repo (gitignored) chỉ chứa
+artifact: prompt render, `setup_state.json`, log driver web.
 
 ### Nhiều tài khoản Muse (khác account Chrome)
 
@@ -170,7 +171,7 @@ bash scripts/bridge.sh profiles --json     # cho agent parse
 Cột `LOGGED_IN=yes` = profile đó còn cookie muse.ai sống (còn đăng nhập). Cột `USED_BY` = host nào
 đang dùng profile đó. Bỏ `--profile-dir` thì dùng `Default`.
 
-Mỗi host có **CDP port và clone dir riêng** (ghi trong `.muse-hosts/<id>.json`: `web_cdp_port`,
+Mỗi host có **CDP port và clone dir riêng** (ghi trong `~/.muse-bridge/hosts/<id>.json`: `web_cdp_port`,
 `web_clone_dir`) → chạy song song nhiều host, mỗi host một Chrome clone độc lập, không đụng nhau.
 
 ### Đảo chiều (Flow B)

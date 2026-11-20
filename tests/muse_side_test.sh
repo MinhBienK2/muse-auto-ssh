@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # muse_side_test.sh - Kiem tra phia Muse offline (khong can container that):
-#   1. Prompt VAN TAI ngan, co 4 buoc bang loi nguoi, KHONG chua ma nguon
+#   1. Prompt VAN TAI ngan, co 7 buoc, KHONG chua ma nguon
 #      (truong hop bi bo loc an toan cua Agent Muse chan).
 #   2. Bundle phia Muse (muse_side.sh) chay dung: config + HELLO/REPORT.
 #   3. Config tunnel RIENG theo port (2 port tren cung container khong dau nhau).
@@ -49,8 +49,13 @@ MUSE_HOME="$TMP/muse"
 mkdir -p "$LOCAL_SPOOL" "$MUSE_HOME/.muse-bridge"
 
 echo "== 1. prompt vua giới hạn, khong chua code"
+# --pubkey phai cho SAN: render_prompt.py tu do key that cua may (~/.ssh) ->
+# test khong duoc phu thuoc key that cua nguoi dung (luat test hermetic).
+code=0
 python3 "$REPO_DIR/scripts/render_prompt.py" --host 100.64.0.1 --user testuser \
-  --port 2223 --spool "$LOCAL_SPOOL" --out "$TMP/MUSE_PROMPT.md" >/dev/null
+  --pubkey "ssh-ed25519 AAAAprobe" \
+  --port 2223 --spool "$LOCAL_SPOOL" --out "$TMP/MUSE_PROMPT.md" >/dev/null || code=$?
+rc "render_prompt.py chay duoc" "$code"
 size=$(wc -c < "$TMP/MUSE_PROMPT.md")
 ok "prompt trong gioi han (<20KB, hien tai ${size}B)" test "$size" -lt 20000
 ok "prompt khong nhung ma nguon" bash -c '! grep -q MUSE_BRIDGE_PY_EOF "$1"' _ "$TMP/MUSE_PROMPT.md"

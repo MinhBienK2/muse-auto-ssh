@@ -33,6 +33,11 @@ count_json() {  # $1 = thu muc -> so file .json
 boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 uptime_s="$(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)"
 uptime_s="$(num "${uptime_s%%.*}")"
+# btime = gio kernel boot (epoch). Dung no de tinh thoi gian song THAT:
+# /proc/uptime cua container nhay nguoc khi nen tang suspend/resume
+# (da thay 2877s -> 1954s trong 1 chu ky), nen khong dua vao de do thoi gian.
+boot_epoch="$(awk '/^btime/ {print $2; exit}' /proc/stat 2>/dev/null || echo 0)"
+boot_epoch="$(num "$boot_epoch")"
 
 mem_kb="$(awk '/^MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
 mem_available_mb=$(( $(num "$mem_kb") / 1024 ))
@@ -65,6 +70,6 @@ if [ -n "$port" ]; then
   tunnel="$(num "$tunnel")"
 fi
 
-printf '{"boot_id":"%s","uptime_s":%s,"mem_available_mb":%s,"disk_free_mb":%s,"durable":"%s","home":"%s","peer_inbox":%s,"peer_outbox":%s,"peer_pending":%s,"peer_read":%s,"sshd":"%s","tunnel":%s}\n' \
-  "$boot_id" "$uptime_s" "$mem_available_mb" "$disk_free_mb" "$durable" "$HOME" \
+printf '{"boot_id":"%s","uptime_s":%s,"boot_epoch":%s,"mem_available_mb":%s,"disk_free_mb":%s,"durable":"%s","home":"%s","peer_inbox":%s,"peer_outbox":%s,"peer_pending":%s,"peer_read":%s,"sshd":"%s","tunnel":%s}\n' \
+  "$boot_id" "$uptime_s" "$boot_epoch" "$mem_available_mb" "$disk_free_mb" "$durable" "$HOME" \
   "$p_inbox" "$p_outbox" "$p_pending" "$p_read" "$sshd_state" "$tunnel"

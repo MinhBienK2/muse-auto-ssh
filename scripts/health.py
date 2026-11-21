@@ -20,6 +20,7 @@ import datetime
 import json
 import os
 import sys
+import time
 
 MAX_LINES = 50000
 
@@ -75,13 +76,22 @@ def cmd_sample(args: list[str]) -> int:
     peer = load_json(peer_file) if peer_file else {}
     reachable = bool(peer)
 
+    # Thoi gian song THAT = gio kernel boot (btime) -> hien tai. Khong dung
+    # /proc/uptime: container bi nen tang suspend/resume lam no nhay nguoc.
+    boot_epoch = int(peer.get("boot_epoch") or 0)
+    if boot_epoch:
+        uptime_s = max(0, int(time.time()) - boot_epoch)
+    else:
+        uptime_s = int(peer.get("uptime_s") or 0)
+
     row = {
         "ts": now_iso(),
         "host": host,
         "port": int(port) if port.isdigit() else 0,
         "reachable": reachable,
         "boot_id": peer.get("boot_id", ""),
-        "uptime_s": peer.get("uptime_s", 0),
+        "boot_epoch": boot_epoch,
+        "uptime_s": uptime_s,
         "mem_available_mb": peer.get("mem_available_mb", 0),
         "disk_free_mb": peer.get("disk_free_mb", 0),
         "durable": peer.get("durable", ""),
@@ -151,7 +161,11 @@ def fmt_uptime(seconds: float) -> str:
 
 
 def stats(samples: list[dict]) -> dict:
-    """Restart = boot_id doi giua 2 mau lien tiep (ca 2 deu reachable)."""
+    """Restart = boot_id doi giua 2 mau lien tiep (ca 2 deu reachable).
+
+    Doi boot_id = container bi thay instance (platform refresh). Moi instance
+    duoc do bang thoi gian tu lan thay den lan thay tiep theo.
+    """
     restarts = 0
     outages = 0
     down_samples = 0
@@ -159,6 +173,8 @@ def stats(samples: list[dict]) -> dict:
     prev_boot = ""
     prev_up = True
     uptimes = []
+    lifetimes = []
+    first_seen = {}
     boot_changed = False
 
     for s in samples:
@@ -170,6 +186,14 @@ def stats(samples: list[dict]) -> dict:
                 restarts += 1
                 last_restart_ts = s.get("ts", "")
                 boot_changed = True
+                # thoi gian song cua instance vua bi thay
+                born = first_seen.get(prev_boot)
+                now_ts = parse_ts(s.get("ts", ""))
+                if born and now_ts:
+                    lifetimes.append(int((now_ts - born).total_seconds()))
+                first_seen[boot] = now_ts
+            elif not prev_boot and boot:
+                first_seen[boot] = parse_ts(s.get("ts", ""))
             prev_boot = boot or prev_boot
         else:
             down_samples += 1
@@ -202,6 +226,10 @@ def stats(samples: list[dict]) -> dict:
         "max_uptime_s": max(uptimes) if uptimes else 0,
         "max_uptime_human": fmt_uptime(max(uptimes) if uptimes else 0),
         "avg_uptime_s": int(sum(uptimes) / len(uptimes)) if uptimes else 0,
+        "avg_instance_lifetime_s": int(sum(lifetimes) / len(lifetimes)) if lifetimes else 0,
+        "avg_instance_lifetime_human": fmt_uptime(
+            int(sum(lifetimes) / len(lifetimes)) if lifetimes else 0
+        ),
         "mem_available_mb": last.get("mem_available_mb", 0),
         "disk_free_mb": last.get("disk_free_mb", 0),
         "durable": last.get("durable", ""),
@@ -239,19 +267,19 @@ def cmd_show(args: list[str]) -> int:
         print(json.dumps(all_stats, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"{'HOST':<14} {'STATE':<6} {'UPTIME':<8} {'RESTART':<8} {'LAST-RESTART':<20} {'MAX-UPTIME':<10} {'MEM-MB':<7} {'PEER-IN':<9} {'LOCAL-IN'}")
+    print(f"{'HOST':<14} {'STATE':<6} {'UPTIME':<8} {'RESTART':<8} {'LAST-RESTART':<20} {'AVG-LIFE':<10} {'MEM-MB':<7} {'PEER-IN':<9} {'LOCAL-IN'}")
     for h, s in all_stats.items():
         state = "UP" if s["reachable"] else "DOWN"
         last_restart = s["last_restart_ts"].replace("T", " ")[:19] if s["last_restart_ts"] else "-"
         print(
             f"{h:<14} {state:<6} {s['uptime_human']:<8} {s['restarts']:<8} {last_restart:<20} "
-            f"{s['max_uptime_human']:<10} {s['mem_available_mb']:<7} {s['peer_inbox']:<9} {s['local_inbox']}"
+            f"{s['avg_instance_lifetime_human']:<10} {s['mem_available_mb']:<7} {s['peer_inbox']:<9} {s['local_inbox']}"
         )
     print()
     for h, s in all_stats.items():
         durable = s["durable"] or "(khong co thu ben vung)"
         print(
-            f"[{h}] mau={s['samples']} down={s['outages']} lan "
+            f"[{h}] mau={s['samples']} down={s['outages']} lan ({s['down_samples']} mau) "
             f"boot_luc={s['boot_at'] or '-'} durable={durable} "
             f"sshd={s['sshd'] or '?'} tunnel={s['tunnel']}"
         )

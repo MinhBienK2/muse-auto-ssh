@@ -145,6 +145,28 @@ Mỗi bên có một thư mục spool:
 
 Tên file = `<id>.json`, `id` = `<UTC timestamp>-<8 hex>` → sắp xếp theo thứ tự thời gian.
 
+### 5.1. Spool trong container Muse là BỀN VỮNG
+
+Container Muse bị nền tảng refresh (xoay vong) → `/` (overlay) và `/tmp` bị xoá và dựng lại.
+Vì vậy, trong container:
+
+```
+/root/.muse-bridge -> /home/hatch/.muse-bridge     # SYMLINK, không phải thư mục thật
+```
+
+`/home/hatch` là mount riêng (`/dev/mapper/rv`, 150G, btrfs) — **chỉ chỗ này sống sót qua
+refresh**. Hệ quả trực tiếp:
+
+- **Tin nhắn không mất** khi container restart: spool (inbox/outbox/pending/read) nằm trong
+  `/home/hatch`. Đã kiểm chứng: tin cũ từ 08/11 vẫn còn sau lần boot 21/11.
+- `/root/.ssh` **không** được symlink — `sshd` `StrictModes` từ chối key trong thư mục
+  group-writable (`/home/hatch`) → phải copy thật, chmod 600.
+- Mọi thứ khác ngoài `/home/hatch` (tiến trình đang chạy, `/etc/ssh/ssh_host_*`, `/tmp`) mất.
+- Token instance của `roff` cố tình nằm trong `$HOME` (mất theo instance) để còn phát hiện
+  được "host bị wipe"; dữ liệu (`projects/`, `jobs/`, `toolchain/`) thì nằm trên mount bền vững.
+
+Bảng đầy đủ "mất gì / giữ gì" + lệnh theo dõi: `README.md` mục 6.1, `bash scripts/bridge.sh health`.
+
 ---
 
 ## 6. Envelope tin nhắn

@@ -30,6 +30,8 @@
 #   repair --host <id>         danh thuc container Muse bi dong bang qua web
 #   authorize --host <id> --key '<ssh-ed25519 ...>'  them key cua Muse
 #   doctor                     chan doan trang thai (forward, keepalive, key)
+#   health [--host <id>]       theo doi thoi gian song + do ben vung cua container
+#                              (ghi mau vao ~/.muse-bridge/health/<id>/samples.jsonl)
 #   release --host <id>        dung session ssh cu giu port forward (container treo)
 #   selftest                   kiem tra bus hai huong (khong can mang)
 # ==============================================================================
@@ -43,6 +45,7 @@ case "${1:-}" in
   hosts)     shift; bash "$LOCAL_SIDE" hosts "$@" ;;
   profiles)  shift; bash "$LOCAL_SIDE" profiles "$@" ;;
   doctor)    shift; bash "$LOCAL_SIDE" doctor "$@" ;;
+  health)    shift; bash "$LOCAL_SIDE" health "$@" ;;
   release)   shift; bash "$LOCAL_SIDE" release "$@" ;;
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
   set-port)  shift; bash "$LOCAL_SIDE" set-port "$@" ;;

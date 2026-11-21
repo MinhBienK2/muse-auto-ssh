@@ -1,0 +1,11 @@
+[Unit]
+Description=muse-bridge - lay mau suc khoe container Muse moi 5 phut
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+#Boot lai may -> lay mau ngay (khong bo qua mau dang doi)
+Persistent=true
+
+[Install]
+WantedBy=timers.target

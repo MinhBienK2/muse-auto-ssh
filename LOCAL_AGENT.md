@@ -182,6 +182,7 @@ CDP port + clone dir riêng → chạy song song được.
 ## 7. Trạng thái & sự cố
 
 ```bash
+bash scripts/bridge.sh health                    # thoi gian song, so lan restart, RAM, spool, thu muc ben vung
 bash scripts/bridge.sh status --host <id>
 ```
 
@@ -194,6 +195,8 @@ bash scripts/bridge.sh status --host <id>
 | Muse hiện hộp "Approval required" | Bấm Allow (script `muse_web.py approve` làm tự động). |
 | Muse nói "không qua kiểm tra an toàn" | Đừng dán lại khối script lớn. Gửi lại bằng lời, từng bước ngắn (mục 3.2). |
 | Không rõ đang ở đâu | `bash scripts/bridge.sh doctor` — sshd, TOFU hook, từng host. |
+| Container vừa restart (xem `health`) | Bình thường — nền tảng xoay vong container. Tin nhắn **không mất** (spool là symlink → `/home/hatch/.muse-bridge`). Chỉ việc đang chạy và dữ liệu ngoài `/home/hatch` là mất. Daemon tự provision lại ~2 phút. |
+| Cần biết container sống được bao lâu, restart mấy lần | `bash scripts/bridge.sh health` — đếm `boot_id` đổi trong `~/.muse-bridge/health/<id>/samples.jsonl`; timer 5 phút/lần: `muse-bridge-health.timer` (xem `bridge/muse-bridge-health.timer`). |
 
 ### 7.1. Chạy nền (tuỳ chọn, khuyến nghị)
 

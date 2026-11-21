@@ -1,0 +1,10 @@
+[Unit]
+Description=muse-bridge - lay mau suc khoe container Muse (thoi gian song, restart, ben vung)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+#Sua duong dan repo neu ban move repo (xem LOCAL_AGENT.md muc 7.1)
+WorkingDirectory=%h/Documents/muse
+ExecStart=/bin/bash %h/Documents/muse/scripts/bridge.sh health

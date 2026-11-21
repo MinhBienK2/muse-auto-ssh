@@ -311,6 +311,7 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
 | `bash scripts/bridge.sh provision --host <id>` | Đẩy bus + watchdog + chạy setup phía Muse |
 | `bash scripts/bridge.sh doctor` | Chẩn đoán: sshd, TOFU hook, từng host |
+| `bash scripts/bridge.sh health` | Theo dõi container: thời gian sống, số lần restart, RAM, spool, thư mục bền vững (ghi mẫu vào `~/.muse-bridge/health/<id>/samples.jsonl`) |
 | `bash scripts/bridge.sh repair --host <id>` | Đánh thức container Muse bị đóng băng qua web (gửi vào **chat riêng** của host) |
 | `bash scripts/bridge.sh chat --host <id>` | Chat riêng của bridge cho host (`/thread/<uuid>`, lưu trong card) — tạo mới nếu chưa có |
 | `bash scripts/bridge.sh daemon` | Watcher nền: log + thông báo desktop |
@@ -346,6 +347,45 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Key của máy bạn biến mất sau khi container refresh | `/root` bị xoá khi refresh | Key gốc nằm ở `/home/hatch/.ssh/authorized_keys` và được **copy** sang `/root/.ssh/authorized_keys` (chmod 600). **Không symlink** — `/home/hatch` group-writable → `sshd` `StrictModes` từ chối key → `Permission denied` |
 | Prompt lệch phiên bản | Sửa tay `MUSE_PROMPT.md` | Sửa `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` rồi `python3 scripts/render_prompt.py` |
 | `selftest` FAIL trên máy khác | Test còn đọc trạng thái thật của máy | Báo lại — test phải hermetic (xem `CODING_STANDARDS.md` mục 6) |
+
+### 6.1. Container bị refresh — mất gì, giữ gì?
+
+Container Muse do nền tảng **xoay vong** (refresh) không báo trước: mỗi lần refresh, toàn bộ
+`/` (overlay 7.5G) và `/tmp` bị xoá và dựng lại. Đây là hành vi bình thường của nền tảng, không
+phải lỗi — nên phải **thiết kế cho nó**, đừng cố ngăn.
+
+| Nằm ở đâu | Còn sau refresh? |
+|---|---|
+| `/home/hatch` (150G, `/dev/mapper/rv`) | ✅ còn — mọi thứ bên trong đều bền |
+| `/root/.muse-bridge` | ✅ còn — nó là **symlink** → `/home/hatch/.muse-bridge`, nên **spool tin nhắn không mất** |
+| `/root/.ssh` | ❌ mất → được `provision` copy lại từ `/home/hatch/.muse-bridge/authorized_keys.seed` |
+| `/etc/ssh/ssh_host_*` | ❌ mất → được copy lại từ `/home/hatch/.muse-bridge/ssh_host/` (nếu không, fingerprint đổi) |
+| `/tmp`, `/var`, `/usr` | ❌ mất |
+| Tiến trình đang chạy (job, tunnel, sshd) | ❌ chết — container mới lên, phải tự mở lại |
+
+Phía máy bạn tự phục hồi trong ~2 phút: daemon nền thấy container refresh → `auto-reprovision`
+(bus + watchdog + loop tunnel + systemd) qua SSH. Tin nhắn đang chờ không mất (spool bền) —
+nhưng **job đang chạy thì chết**, và dữ liệu nằm ngoài `/home/hatch` cũng chết theo.
+
+Xem số lần restart và thời gian sống thực tế:
+
+```bash
+bash scripts/bridge.sh health                    # 1 lần, in bảng + ghi 1 mẫu
+# hoặc cài timer 5 phút/lần:
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mkdir -p ~/.config/systemd/user
+sed "s#%h/Documents/muse#$REPO#g" bridge/muse-bridge-health.service > ~/.config/systemd/user/muse-bridge-health.service
+cp bridge/muse-bridge-health.timer ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now muse-bridge-health.timer
+```
+
+Mẫu lưu ở `~/.muse-bridge/health/<id>/samples.jsonl`; `boot_id` đổi = 1 lần restart.
+
+**Đẩy việc nặng sang container Muse** (`roff` — skill `remote-offload`): layout của `roff` nằm
+ở `$ROFF_ROOT`; khi host có thư mục bền vững (Muse: `/home/hatch`) thì `roff` tự dùng
+`/home/hatch/.roff` → **project đã push và output của job còn nguyên sau refresh**. Việc đang
+chạy vẫn chết (exit 69) → `roff pull` phần output còn lại rồi submit lại, **không** phải push
+lại. Lưu ý RAM: container Muse thường chỉ còn ~600 MB trống → job nặng dễ bị OOM-kill.
 
 ---
 

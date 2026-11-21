@@ -29,6 +29,7 @@ STATE_DIR="${MUSE_BRIDGE_STATE:-$HOME/.muse-bridge}"
 export MUSE_BRIDGE_STATE="$STATE_DIR"
 HOSTS_DIR="$STATE_DIR/hosts"
 SPOOLS_DIR="$STATE_DIR/spools"
+HEALTH_DIR="${MUSE_BRIDGE_HEALTH_DIR:-$STATE_DIR/health}"
 REPO_HOSTS_DIR="${MUSE_BRIDGE_REPO_HOSTS:-$REPO_DIR/.muse-hosts}"
 LOCAL_KEY="${LOCAL_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE_SPOOL="${REMOTE_SPOOL:-/root/.muse-bridge}"
@@ -1296,6 +1297,48 @@ cmd_release() {
   return "$rc"
 }
 
+# ------------------------------------------------------------------ health
+# Theo doi thoi gian song + do ben vung cua container Muse.
+#
+# Container bi platform refresh xoa moi "/" - chi /home/hatch ben vung. Script
+# health_probe.sh chay trong container, in 1 dong JSON; mau duoc ghi vao
+# <state>/health/<id>/samples.jsonl (moi dong = 1 mau) de dem so lan RESTART
+# (boot_id doi) va thoi gian song theo thoi gian.
+cmd_health() {
+  parse_flags "$@"
+  local ids
+  if [ -n "$HOST" ]; then
+    ids="$HOST"
+  else
+    ids="$(host_ids)"
+  fi
+  [ -n "$ids" ] || { echo "(chua co host nao)"; return 0; }
+
+  local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/muse-health.XXXXXX")"
+  local id port peer
+  for id in $ids; do
+    port="$(host_peer_port "$id")"
+    peer="$tmp/$id.peer.json"
+    if [ -n "$port" ]; then
+      # ssh thu ban script -> container chay -> tra 1 dong JSON
+      ssh_host_push "$port" "$SCRIPT_DIR/health_probe.sh" "bash -s -- $port" \
+        > "$peer" 2>/dev/null || true
+    fi
+    python3 "$REPO_DIR/scripts/health.py" sample \
+      --host "$id" --port "${port:-0}" \
+      --config "$(host_config "$id")" \
+      --peer "$peer" \
+      --state-dir "$HEALTH_DIR" >/dev/null 2>&1 || true
+  done
+  rm -rf "$tmp"
+
+  if [ "$JSON" = "1" ]; then
+    python3 "$REPO_DIR/scripts/health.py" show --state-dir "$HEALTH_DIR" --json
+    return 0
+  fi
+  python3 "$REPO_DIR/scripts/health.py" show --state-dir "$HEALTH_DIR"
+}
+
 # ------------------------------------------------------------------ doctor
 cmd_doctor() {
   parse_flags "$@"
@@ -1356,6 +1399,7 @@ case "${1:-}" in
   hosts)     shift; cmd_hosts "$@" ;;
   profiles)  shift; cmd_profiles "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
+  health)    shift; cmd_health "$@" ;;
   release)   shift; cmd_release "$@" ;;
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   set-port)  shift; cmd_set_port "$@" ;;
@@ -1374,5 +1418,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|rename|remove-host|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|rename|remove-host|authorize|onboard|doctor|health|release|provision|reprovision|repair}"; exit 2 ;;
 esac

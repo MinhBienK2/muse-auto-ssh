@@ -183,6 +183,20 @@ ok "default-host bi trung da xoa" bash -c '[ ! -f "$1/default-host" ]' _ "$MUSE_
 ok "host khac khong bi anh huong" bash -c '[ -f "$1/hosts/muse.json" ]' _ "$MUSE_BRIDGE_STATE"
 out="$(bash "$REPO_DIR/scripts/bridge.sh" remove-host --host khong-co 2>&1)"; rc_nonzero "host khong ton tai -> exit khac 0" "$?"
 
+echo "== 10. moi host lay CDP port rieng (khong dung chung Chrome -> dan nham account)"
+bash "$REPO_DIR/scripts/bridge.sh" add-host --host muse-p2 --port 2230 --profile-dir "Profile 2" >/dev/null
+bash "$REPO_DIR/scripts/bridge.sh" add-host --host muse-p3 --port 2231 --profile-dir "Profile 3" >/dev/null
+code=0
+python3 - "$MUSE_BRIDGE_REPO_HOSTS" <<'PY4' || code=$?
+import json, os, sys
+repo = sys.argv[1]
+a = json.load(open(os.path.join(repo, "muse-p2", "card.json")))
+b = json.load(open(os.path.join(repo, "muse-p3", "card.json")))
+assert a["web_cdp_port"] != b["web_cdp_port"], (a["web_cdp_port"], b["web_cdp_port"])
+assert a["web_clone_dir"] != b["web_clone_dir"], (a["web_clone_dir"], b["web_clone_dir"])
+PY4
+rc "2 host khac profile -> 2 CDP port khac nhau" "$code"
+
 echo
 if [ "$fails" = "0" ]; then echo "HOSTS_TEST: PASS"; else echo "HOSTS_TEST: FAIL ($fails)"; fi
 exit "$fails"

@@ -229,9 +229,15 @@ next_free_port() {
 }
 
 # CDP port cho driver web: 9222 la mac dinh, host khac lay port trong 9230-9299.
+# Phai bo qua ca port da cap cho host khac (card), KHONG chi port dang LISTEN:
+# hai host duoc dang ky o hai phut khac nhau van phai chung port -> driver host
+# sau nhung vao Chrome cua host truoc -> dan prompt nham sang account khac.
 next_free_cdp_port() {
   local p=9230
-  while ss -tln 2>/dev/null | grep -q ":$p\b"; do p=$((p+1)); done
+  while ss -tln 2>/dev/null | grep -q ":$p\b" \
+        || grep -qs "\"web_cdp_port\": ${p}[,}]" "$REPO_HOSTS_DIR"/*/card.json; do
+    p=$((p+1))
+  done
   echo "$p"
 }
 

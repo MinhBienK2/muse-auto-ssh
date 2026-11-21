@@ -9,6 +9,7 @@
 #                              [--profile-dir "Profile 2"]  <- Chrome profile/account
 #   set-port --host <id> --port <p>  doi port host da dang ky (khong ghi lai card)
 #   rename --host <id> --new-id <id-moi>  doi ten host theo chuan muse-<email>
+#   remove-host --host <id>    go dang ky host (giu spool + lich su card .removed/)
 #   onboard --host <id>       \x{1}trong suot: dang ky -> gui prompt qua web Muse -> xac nhan
 #   arm --host <id>            chuan bi moi truong may ngoai (idempotent)
 #   status --host <id>         trang thai kenh hai chieu
@@ -45,6 +46,7 @@ case "${1:-}" in
   add-host)  shift; bash "$LOCAL_SIDE" add-host "$@" ;;
   set-port)  shift; bash "$LOCAL_SIDE" set-port "$@" ;;
   rename)    shift; bash "$LOCAL_SIDE" rename "$@" ;;
+  remove-host) shift; bash "$LOCAL_SIDE" remove-host "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;
   repair)    shift; bash "$LOCAL_SIDE" repair "$@" ;;
@@ -61,5 +63,5 @@ case "${1:-}" in
   push)      shift; bash "$LOCAL_SIDE" push "$@" ;;
   authorize) shift; bash "$LOCAL_SIDE" authorize "$@" ;;
   selftest)  shift; bash "$REPO_DIR/tests/run_all.sh" ;;
-  *) sed -n '2,31p' "$0"; exit 2 ;;
+  *) sed -n '2,32p' "$0"; exit 2 ;;
 esac

@@ -173,6 +173,16 @@ ok "default-host doi theo khi trung host bi rename" bash -c '[ "$(cat "$1/defaul
 out="$(bash "$REPO_DIR/scripts/bridge.sh" rename --host muse-tam --new-id muse 2>&1)"; rc_nonzero "id moi da ton tai -> exit khac 0" "$?"
 out="$(bash "$REPO_DIR/scripts/bridge.sh" rename --host muse-tam --new-id 'Ten Xau!' 2>&1)"; rc_nonzero "id chua ky tu la -> exit khac 0" "$?"
 
+echo "== 9. remove-host: go dang ky, giu spool + lich su card"
+bash "$REPO_DIR/scripts/bridge.sh" remove-host --host muse-tam >/dev/null
+ok "config da go" bash -c '[ ! -f "$1/hosts/muse-tam.json" ]' _ "$MUSE_BRIDGE_STATE"
+ok "alias da go" bash -c '! grep -q "^Host muse-tam$" "$1"' _ "$HOME/.ssh/config"
+ok "spool tin nhan giu nguyen" bash -c '[ -f "$1/spools/muse-tam/inbox/tin-cu.json" ]' _ "$MUSE_BRIDGE_STATE"
+ok "card thanh .removed (giu lich su)" bash -c '[ -f "$1/muse-tam.removed/card.json" ] && [ ! -d "$1/muse-tam" ]' _ "$MUSE_BRIDGE_REPO_HOSTS"
+ok "default-host bi trung da xoa" bash -c '[ ! -f "$1/default-host" ]' _ "$MUSE_BRIDGE_STATE"
+ok "host khac khong bi anh huong" bash -c '[ -f "$1/hosts/muse.json" ]' _ "$MUSE_BRIDGE_STATE"
+out="$(bash "$REPO_DIR/scripts/bridge.sh" remove-host --host khong-co 2>&1)"; rc_nonzero "host khong ton tai -> exit khac 0" "$?"
+
 echo
 if [ "$fails" = "0" ]; then echo "HOSTS_TEST: PASS"; else echo "HOSTS_TEST: FAIL ($fails)"; fi
 exit "$fails"

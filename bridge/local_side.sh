@@ -445,6 +445,34 @@ PY
   say "Ten node Tailscale: dat theo id moi khi provision (best-effort, can CLI trong container)"
 }
 
+# ------------------------------------------------------------------ remove-host
+# Go dang ky host phia may nay (config + ssh alias). Card folder doi thanh
+# <id>.removed/ de giu lich su (thread, prompt). Spool tin nhan GIU NGUYEN.
+# Khong dung gi trong container - viec do lam rieng qua SSH.
+cmd_remove_host() {
+  parse_flags "$@"
+  require_host
+  [ -f "$(host_config "$HOST")" ] || die "khong thay config host '$HOST'"
+  local port; port="$(host_peer_port "$HOST")"
+  rm -f "$(host_config "$HOST")"
+  python3 - "$HOME/.ssh/config" "$HOST" <<'PY'
+import re, sys
+path, host = sys.argv[1:3]
+text = open(path).read()
+text = re.sub(r"(?ms)^# Muse Reverse SSH Tunnel - %s\nHost %s\n.*?(?=^Host |^# |\Z)" % (re.escape(host), re.escape(host)), "", text)
+text = re.sub(r"(?ms)^Host %s\n.*?(?=^Host |^# |\Z)" % re.escape(host), "", text)
+open(path, "w").write(text)
+PY
+  # card folder: giu lai thanh <id>.removed/ de con lich su (thread, prompt)
+  local dir="$REPO_HOSTS_DIR/$HOST"
+  if [ -d "$dir" ] && [ ! -e "$dir.removed" ]; then mv "$dir" "$dir.removed"; fi
+  if [ -f "$STATE_DIR/default-host" ] && [ "$(cat "$STATE_DIR/default-host")" = "$HOST" ]; then
+    rm -f "$STATE_DIR/default-host"
+  fi
+  say "da go dang ky host '$HOST' (port $port). Spool tin nhan giu nguyen: $SPOOLS_DIR/$HOST"
+  say "Luu y: tunnel phia container van chay neu chua dung - dung no qua SSH truoc khi go"
+}
+
 
 # ------------------------------------------------------------------ provision Muse
 muse_provision() {
@@ -1270,6 +1298,7 @@ case "${1:-}" in
   add-host)  shift; parse_flags "$@"; add_host "$HOST" "$PORT" ;;
   set-port)  shift; cmd_set_port "$@" ;;
   rename)    shift; cmd_rename "$@" ;;
+  remove-host) shift; cmd_remove_host "$@" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
   repair)   shift; cmd_repair "$@" ;;
@@ -1282,5 +1311,5 @@ case "${1:-}" in
               muse_provision "$(host_peer_port "$HOST")" "$(detect_ts_ip)" "$(host_local_spool "$HOST")"
               bus_py sync >/dev/null 2>&1 || true
               cmd_status ;;
-  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|rename|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
+  *) echo "usage: local_side.sh {arm|status|inbox|send|ack|sync|pull|daemon|prompt|push|hosts|profiles|add-host|set-port|rename|remove-host|authorize|onboard|doctor|release|provision|reprovision|repair}"; exit 2 ;;
 esac

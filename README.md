@@ -296,7 +296,8 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh profiles` | Liệt kê Chrome profile + profile nào còn đăng nhập muse.ai (tên, email, host đang dùng) |
 | `bash scripts/bridge.sh add-host --host <id>` | Đăng ký Muse host mới (port, ssh alias, spool) |
 | `bash scripts/bridge.sh set-port --host <id> --port <p>` | Đổi port host đã đăng ký (config + card + ssh alias), **không** ghi lại card |
-| `bash scripts/bridge.sh rename --host <id> --new-id <id-moi>` | Đổi tên host theo chuẩn `muse-<local-part email>` (config + spool + folder card + ssh alias; port và tin nhắn giữ nguyên) |
+| `bash scripts/bridge.sh rename --host <id> --new-id <id-moi>` | Đổi tên host — chuẩn: theo **tên đã đặt cho Muse** (vd `muse-tampt`), chưa đặt tên thì `muse-<local-part email>` (config + spool + folder card + ssh alias; port và tin nhắn giữ nguyên) |
+| `bash scripts/bridge.sh remove-host --host <id>` | Gỡ đăng ký host trùng/chết (giữ spool tin nhắn + lịch sử card `.removed/`); dừng tunnel trong container trước khi gỡ |
 | `bash scripts/bridge.sh add-host --host <id> --profile-dir "Profile 2"` | Như trên, nhưng host dùng Chrome profile (account) khác `Default` |
 | `bash scripts/bridge.sh arm` | Chuẩn bị máy (idempotent) |
 | `bash scripts/bridge.sh onboard --host <id>` | Zero-touch: tự dán prompt vào web Muse + chờ kênh thông |

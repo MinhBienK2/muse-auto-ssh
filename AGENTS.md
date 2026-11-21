@@ -99,6 +99,9 @@ git config core.hooksPath .githooks
   thừa cgroup `muse-reverse-tunnel-<port>.service` → `systemctl restart unit` giết **cả cgroup** →
   `sshd` chết **và mọi phiên SSH đang mở bị cắt** (lệnh `push` fail, SSH mất ~20-30s). Loop + hook
   phải chuyển `sshd` sang `system.slice` (`echo <pid> > /sys/fs/cgroup/system.slice/cgroup.procs`).
+  Còn tiến trình `ssh` client của forward thì **cố ý** ở lại trong cgroup unit: `systemctl stop` phải
+  giải phóng được port forward (cell mới cần bind lại), nên restart unit vẫn cắt kết nối TCP đi
+  qua forward — chấp nhận được, chỉ cần watchdog **ít restart** (xem quy tắc kế tiếp).
 - **Đừng restart unit tunnel chỉ vì version lệch.** Loop tự kéo bundle và `exec` lại chính nó
   (ghi `.loop_version` sau ~1-2s) → watchdog bắt được khoảnh thời gian đó sẽ restart thừa → gián
   đoạn. Watchdog chỉ restart khi mismatch **lặp lại 2 vòng hook**.

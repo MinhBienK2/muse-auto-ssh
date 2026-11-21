@@ -354,10 +354,14 @@ Bốn quy tắc rút ra, áp dụng cho mọi thay đổi sau này:
    `grep -q` (grep thoát sớm → đóng sớm → RST), và chỉ restart `sshd` sau **2 lần thất bại liên tiếp**
    (một lần timeout chưa đủ để kết luận `sshd` treo).
 4. **`sshd` không được ở lại trong cgroup của unit tunnel.** Loop (và hook) chuyển `sshd` sang
-   `system.slice` (cgroup v2, `cgroup.procs`) ngay khi phát hiện → restart unit không còn giết
-   `sshd` + phiên SSH đang mở. Đồng thời watchdog **chỉ restart unit khi mismatch version lặp lại
-   2 vòng hook** (loop tự `exec` lại chính nó trong ~1-2 s, nên restart ở khoảnh thời gian đó là
-   thừa và gây gián đoạn).
+   `system.slice` (cgroup v2, `cgroup.procs`) ngay khi phát hiện → restart unit **không còn giết
+   `sshd`** (đo được: PID master `sshd` không đổi, và tiến trình phía cell của một phiên SSH đang
+   mở vẫn sống). *Còn* tiến trình `ssh` client của forward thì **cố ý** nằm trong cgroup unit:
+   `systemctl stop` phải giải phóng được port forward, nếu không thì cell mới không bind được
+   (`remote port forwarding failed`) — đổi lại, restart unit sẽ cắt **kết nối TCP** đang đi qua
+   forward (phiên SSH cũ rớt, phiên mới vào được ngay vì `sshd` còn sống). Watchdog **chỉ restart
+   unit khi mismatch version lặp lại 2 vòng hook** (loop tự `exec` lại chính nó trong ~1-2 s, nên
+   restart ở khoảnh thời gian đó là thừa và gây gián đoạn).
 
 > **Đo được trên cell thật:** `systemctl status` = `active (running)`, `NRestarts` theo dõi được,
 > `pgrep -af "ssh .*-R <port>:"` → **đúng 1 dòng**, loop có `PPID=1` và nằm trong cgroup

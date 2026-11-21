@@ -152,7 +152,7 @@ Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 
    sau **2 lần thất bại liên tiếp**); nếu container vừa mất `openssh-server` → cài lại tức thì từ deb
    cache bền vững `/home/hatch/.muse-bridge/deb/` (offline); đặt quyền 0755 cho `/run/sshd`; khôi phục
    host key từ `/home/hatch/.muse-bridge/ssh_host`; **chuyển `sshd` ra khỏi cgroup của unit** để
-   restart unit không cắt `sshd` + các phiên SSH đang mở.
+   restart unit không giết `sshd` (phiên SSH mới vào được ngay).
 3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` + `authorized_keys` + mở lại
    `ssh -R` nếu chết; config riêng theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới
    (kèm deb cache) từ máy ngoài và tự thay script của chính nó (nên container tự lên được sau khi

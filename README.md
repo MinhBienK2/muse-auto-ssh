@@ -381,8 +381,8 @@ pause agent session (hook của Hatch thì không: hook là tiến trình con c�
 Nguyên tắc: **supervisor phải sống lâu hơn thứ nó giám sát**. Loop tunnel phải là `ExecStart` của
 unit systemd (`Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`), **không** được chạy bằng
 `nohup` từ hook. Và `sshd` phải được chuyển ra khỏi cgroup của unit, nếu không mỗi lần restart
-unit sẽ giết luôn `sshd` và **các phiên SSH đang mở**. Chi tiết và nguyên nhân gốc: `PROTOCOL.md`
-mục 8.2–8.3.
+unit sẽ giết luôn `sshd` (SSH mất ~20-30 s, lệnh `push` bị fail). Chi tiết và nguyên nhân gốc:
+`PROTOCOL.md` mục 8.2–8.3.
 
 > **Khi kiểm tra:** dùng `systemctl status <tên-unit>` hoặc `systemctl is-active <tên-unit>`.
 > Dạng đường dẫn (`/etc/systemd/system/<unit>.service`) trả về `inactive` **dù unit đang chạy** —

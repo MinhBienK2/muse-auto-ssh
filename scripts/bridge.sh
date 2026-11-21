@@ -11,6 +11,7 @@
 #   rename --host <id> --new-id <id-moi>  doi ten host theo chuan muse-<email>
 #   remove-host --host <id>    go dang ky host (giu spool + lich su card .removed/)
 #   onboard --host <id>       \x{1}trong suot: dang ky -> gui prompt qua web Muse -> xac nhan
+#   chat --host <id>          chat rieng cua bridge cho host (tao neu chua co, luu vao card)
 #   arm --host <id>            chuan bi moi truong may ngoai (idempotent)
 #   status --host <id>         trang thai kenh hai chieu
 #   inbox --host <id>          doc tin nhan gui tu Muse
@@ -48,6 +49,7 @@ case "${1:-}" in
   rename)    shift; bash "$LOCAL_SIDE" rename "$@" ;;
   remove-host) shift; bash "$LOCAL_SIDE" remove-host "$@" ;;
   onboard)   shift; bash "$LOCAL_SIDE" onboard "$@" ;;
+  chat)      shift; bash "$LOCAL_SIDE" chat "$@" ;;
   provision) shift; bash "$LOCAL_SIDE" provision "$@" ;;
   repair)    shift; bash "$LOCAL_SIDE" repair "$@" ;;
   reprovision) shift; bash "$LOCAL_SIDE" reprovision "$@" ;;

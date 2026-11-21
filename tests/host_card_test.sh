@@ -76,13 +76,17 @@ python3 "$REPO_DIR/scripts/update_host_state.py" "$CARD" >/dev/null 2>&1
 if [ $? -ne 0 ]; then res=0; else res=1; fi
 if [ "$res" = "0" ]; then echo "  ok   - thieu tham so -> exit khac 0"; else echo "  FAIL - thieu tham so -> exit khac 0"; fails=$((fails + 1)); fi
 
-echo "== 5. onboard goi update_host_state voi --thread"
-ok "local_side.sh truyen --thread khi luu card" \
-  grep -q 'update_host_state.py" "\$(host_card "\$HOST")" "\$port" --thread "\$thread"' "$REPO_DIR/bridge/local_side.sh"
+echo "== 5. onboard luu chat rieng vao card"
+ok "local_side.sh luu thread bang save_bridge_thread" \
+  grep -q 'save_bridge_thread "\$thread"' "$REPO_DIR/bridge/local_side.sh"
 
-echo "== 6. repair co fallback tu tim thread qua web"
-ok "repair goi find_thread_web khi card thieu thread" \
-  grep -q "find_thread_web" "$REPO_DIR/bridge/local_side.sh"
+echo "== 6. repair KHONG doan thread tu History (doan sai -> tin roi vao chat nguoi dung)"
+ok "khong con ham find_thread_web" \
+  bash -c "! grep -q 'find_thread_web' '$REPO_DIR/bridge/local_side.sh'"
+ok "driver khong con quet History de doan thread" \
+  bash -c "! grep -q 'candidate_threads' '$REPO_DIR/bridge/muse_web.py'"
+ok "repair lay thread da luu trong card" \
+  grep -q 'thread="\$(host_bridge_thread)"' "$REPO_DIR/bridge/local_side.sh"
 
 echo "== 7. doctor/hosts cap nhat card TRUOC khi doc state"
 code=0

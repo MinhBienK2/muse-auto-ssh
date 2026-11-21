@@ -226,6 +226,24 @@ stateDiagram-v2
 > - Muốn cho tự đánh thức qua chat: `MUSE_WAKE_ALLOW=1` + tối thiểu 30 phút giữa 2 lần + tối đa 6 lần liên tiếp.
 > - Mọi bảo trì định kỳ phải đi qua SSH để không bao giờ đụng vào chat.
 
+#### 8.0.1. MỖI host có MỘT chat riêng — không được đoán, không được dùng Main chat
+
+Mỗi Muse host có **đúng một chat riêng** cho bridge, lưu ở card host (`thread` =
+`https://muse.ai/thread/<uuid>`). Mọi tin gửi qua trình duyệt (prompt bootstrap, tin đánh thức)
+đều vào **chat riêng đó**, và chat đó được **dùng lại** — không tạo chat mới mỗi lần.
+
+| Quy tắc | Vì sao |
+|---|---|
+| Chat mục tiêu phải là `/thread/<uuid>` | Trang gốc `https://muse.ai/` là **Main chat của chính bạn** — tin rơi vào đó là tin của bạn lẫn vào cuộc trò chuyện riêng của bạn |
+| **Không đoán** chat bằng History/số cổng | Driver cũ quét History Chrome profile rồi chọn thread đầu tiên có chứa số cổng → dính vào chat cá nhân của bạn ("Check G3 container SSH tunnels", "Set up Muse SSH tunnel and bus"…) |
+| Không mở được đúng chat → **bỏ qua**, không gửi | Gửi nhầm chat còn tệ hơn không gửi: nó làm bẩn chat của bạn và đốt mất session |
+| Chat mới chỉ tạo **1 lần** (bootstrap), rồi lưu vào card | Mỗi chat mới là 1 session trên nền tảng → tạo nhiều = dính bộ lọc spam |
+| `muse_web.py` xác nhận URL sau khi gửi | Chat mới chỉ có UUID **sau** tin đầu tiên được gửi (`/thread/new` → `/thread/<uuid>`); đọc URL quá sớm → mất thread, lần sau rơi vào chat đang mở |
+
+> Chi tiết cài đặt: `bridge/muse_web.py` (`thread_id()`, `start_new_chat()`, `open_muse()`,
+> `wait_committed_thread()`) và `bridge/local_side.sh` (`is_thread_url()`, `host_bridge_thread()`,
+> `save_bridge_thread()`). Test: `tests/muse_web_thread_test.sh`.
+
 ### 8.1. Ba rào chắn thực tế của nền tảng Muse (đã gặp, đã xử lý)
 
 | Rào chắn | Biểu hiện | Cách xử lý trong thiết kế này |
@@ -253,7 +271,7 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 | 1. **systemd service** `muse-reverse-tunnel-<port>.service` | container Muse | Chạy loop tunnel, `Restart=always`; sống qua cả lần container restart | ✅ trên cả 2 host |
 | 2. **Watchdog v6** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); mất `openssh-server` sau refresh → tự cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; `/etc` bị wipe → cài lại unit từ bản bền ở `/home/hatch`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ cài trên cả 2 host |
 | 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` (tự cài lại từ deb cache nếu thiếu + quyền 0755 + khôi phục host key) + `authorized_keys` + mở lại `ssh -R` nếu chết; tự kéo bundle mới (kèm deb cache) từ máy ngoài và tự thay script của chính nó | ✅ tunnel bị giết/wiped → tự phục hồi sau ~10-15s |
-| 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào chat Muse để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
+| 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào **chat riêng của host** (card `thread`) để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
 
 > **Lưu ý về port forward bị giữ:** khi container bị **đóng băng** (không phải tắt), phiên ssh của nó
 > trên máy ngoài vẫn treo và vẫn giữ port forward `2222`/`2223`. Container mới sẽ không bind được
@@ -271,11 +289,11 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 
 > Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) hoặc treo (suspend) container** — lúc đó
 > không tiến trình nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container
-> từ bên ngoài (gửi tin nhắn vào chat `muse.ai` của nó), rồi lớp 1–3 lo phần còn lại.
+> từ bên ngoài (gửi tin nhắn vào **chat riêng** của nó, xem 8.0.1), rồi lớp 1–3 lo phần còn lại.
 >
 > **Quan sát thực tế:** chat bên (side chat) của Muse có thể bị nền tảng treo khi lâu không dùng →
 > container của nó ngừng chạy → tunnel rơi. Khi đó `bridge.sh repair` (hoặc daemon tự gọi mỗi 5 phút)
-> gửi tin nhắn vào đúng chat đó → cell được đánh thức → tunnel tự lên lại. Nếu muốn container sống
+> gửi tin nhắn vào đúng chat riêng đó → cell được đánh thức → tunnel tự lên lại. Nếu muốn container sống
 > liên tục thì cần mở chat đó trên `muse.ai` (nền tảng giữ cell active khi chat đang mở).
 
 ---

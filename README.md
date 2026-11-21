@@ -311,7 +311,8 @@ giữa hai agent giờ đi qua bus tin nhắn JSON (`muse-bridge`), xem `PROTOCO
 | `bash scripts/bridge.sh push` | Đẩy mã mới lên Muse |
 | `bash scripts/bridge.sh provision --host <id>` | Đẩy bus + watchdog + chạy setup phía Muse |
 | `bash scripts/bridge.sh doctor` | Chẩn đoán: sshd, TOFU hook, từng host |
-| `bash scripts/bridge.sh repair --host <id>` | Đánh thức container Muse bị đóng băng qua web |
+| `bash scripts/bridge.sh repair --host <id>` | Đánh thức container Muse bị đóng băng qua web (gửi vào **chat riêng** của host) |
+| `bash scripts/bridge.sh chat --host <id>` | Chat riêng của bridge cho host (`/thread/<uuid>`, lưu trong card) — tạo mới nếu chưa có |
 | `bash scripts/bridge.sh daemon` | Watcher nền: log + thông báo desktop |
 | `bash scripts/bridge.sh selftest` | Chạy toàn bộ kiểm tra (bus, watchdog, bundle prompt, shellcheck, ruff) — không cần mạng |
 
@@ -338,7 +339,7 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | Container báo "remote port forwarding failed" **liên tục mỗi 15s** | Có **hai** supervisor cùng mở 1 port (ví dụ Agent Muse tự viết thêm script tunnel trong `/root/.ssh/`) | Trong container: `pgrep -af "ssh .*-R <port>:"` → dừng script thừa, chỉ giữ `/home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel-<port>.sh` |
 | Web driver mở ra trang "Log in" của muse.ai | Clone Chrome đổi tên profile (`Profile 2` → `Default`) nên mất phiên đăng nhập | Clone phải **giữ nguyên tên profile** và mở bằng `--profile-directory` (xem `bridge/muse_web.py`) |
 | Container mới không tới được máy bạn (proxy đóng CONNECT tới IP Tailscale) | Container chưa có node Tailscale | Agent sẽ tạo link `login.tailscale.com` → bạn đăng nhập + duyệt node → container có IP tailnet riêng |
-| Container bị đóng băng, không tiến trình nào chạy | Nền tảng suspend/checkpoint container | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức; daemon tự làm mỗi 5 phút |
+| Container bị đóng băng, không tiến trình nào chạy | Nền tảng suspend/checkpoint container | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào **chat riêng của host** (card `thread`) để đánh thức; daemon tự làm mỗi 5 phút |
 | Muse không đăng nhập được vào máy mình | `sshd` trong container đọc `/root/.ssh/authorized_keys`, không phải `~/.ssh/authorized_keys` của user `hatch` | Ghi key vào **cả hai** file (prompt mới đã làm sẵn) |
 | Container không ra ngoài thẳng được | Phải qua HTTP CONNECT proxy `hatch-egress-proxy` cổng **3130** (không cần user:pass) | Dùng `bridge/ts-socat-proxy.sh` — đừng điền tay `USER:PASS` |
 | `Permission denied (publickey,password)` khi SSH ra ngoài | `ssh` không tìm thấy private key của container | Thêm `-i /home/hatch/.ssh/id_ed25519` (key không nằm ở `/root/.ssh/`) |

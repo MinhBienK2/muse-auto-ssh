@@ -16,6 +16,9 @@ Lenh:
                                [--wait-for REGEX] [--timeout 300] [--reply-out FILE]
                                [--thread URL] [--new-chat]
   python3 muse_web.py reply   [--cdp-port 9222] [--out FILE]
+
+Nguyen tac: chi dan tin vao DUNG chat can gui. Khong xac dinh duoc chat thi
+BO QUA (raise) - khong bao gio dan nham vao chat khac cua nguoi dung.
 """
 
 from __future__ import annotations
@@ -27,11 +30,9 @@ import os
 import re
 import shutil
 import socket
-import sqlite3
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -41,6 +42,24 @@ DEFAULT_CDP_PORT = 9222
 DEFAULT_CLONE_DIR = "/tmp/muse-chrome-profile"
 DEFAULT_PROFILE_DIR = "Default"
 COMPOSER = "textarea[aria-label=\"Message\"]"
+NEW_CHAT_BUTTON = '[data-testid="hatch-chat-compose"]'
+# UUID cua 1 thread tren muse.ai. Trang goc ("https://muse.ai/") va "/thread/new"
+# KHONG phai thread that -> phai duoc bo qua, khong phai muc tieu hop le.
+THREAD_PATH_RE = re.compile(
+    r"^https?://[^/]+/thread/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+    r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
+
+
+def thread_id(url: str) -> str:
+    """UUID cua thread tu URL. Rong neu URL khong phai thread that."""
+    path = (url or "").strip().split("#")[0].split("?")[0].rstrip("/")
+    m = THREAD_PATH_RE.match(path)
+    return m.group(1) if m else ""
+
+
+def is_thread_url(url: str) -> bool:
+    return bool(thread_id(url))
 
 
 # --------------------------------------------------------------------- websocket
@@ -177,12 +196,23 @@ def cdp_alive(port: int) -> bool:
 
 
 def attach_page(port: int, thread_url: str | None = None) -> dict:
-    """Chon tab phu hop: uu tien tab dang mo dung thread, neu khong thi dieu huong vao."""
+    """Chon tab dieu khien.
+
+    Co thread -> uu tien tab dang mo DUNG thread do (so sanh UUID, khong so
+    chuoi con - so chuoi con chon nham sang chat khac cua nguoi dung). Neu
+    khong co tab nao dung thread, tra ve mot tab muse.ai bat ky: caller se
+    dieu huong sang thread can dung va open_muse() xac nhan lai truoc khi gui.
+    """
     if thread_url:
-        key = thread_url.rstrip("/").split("/")[-1]
-        for t in http_json("http://127.0.0.1:%d/json/list" % port, timeout=5):
-            if t.get("type") == "page" and t.get("webSocketDebuggerUrl") and key in (t.get("url") or ""):
-                return t
+        want = thread_id(thread_url)
+        if want:
+            for t in http_json("http://127.0.0.1:%d/json/list" % port, timeout=5):
+                if (
+                    t.get("type") == "page"
+                    and t.get("webSocketDebuggerUrl")
+                    and thread_id(t.get("url") or "") == want
+                ):
+                    return t
     return find_page(port, thread_url)
 
 
@@ -190,9 +220,16 @@ def find_page(port: int, prefer_url: str | None = None) -> dict:
     tabs = http_json("http://127.0.0.1:%d/json/list" % port, timeout=5)
     pages = [t for t in tabs if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
     if prefer_url:
-        for t in pages:
-            if prefer_url.split("#")[0] in (t.get("url") or ""):
-                return t
+        want = thread_id(prefer_url)
+        if want:
+            for t in pages:
+                if thread_id(t.get("url") or "") == want:
+                    return t
+        else:
+            base = prefer_url.split("#")[0].split("?")[0].rstrip("/")
+            for t in pages:
+                if (t.get("url") or "").split("#")[0].split("?")[0].rstrip("/") == base:
+                    return t
     for t in pages:
         if "muse.ai" in (t.get("url") or ""):
             return t
@@ -295,20 +332,71 @@ def ensure_chrome(
     raise RuntimeError("khong mo duoc Chrome voi CDP port %d" % port)
 
 
+def start_new_chat(cdp: CDP) -> str:
+    """Mo chat moi (side chat) cua Muse.
+
+    Dung nut "New side chat" cua app: no tao chat trong, khong ke thua lich su
+    cua Main chat. Chua gui tin thi chat chua co UUID (URL van la /thread/new)
+    -> UUID chi xuat hien sau tin dau tien duoc gui.
+    """
+    before_url = cdp.evaluate("location.href") or ""
+    before = thread_id(before_url)
+    clicked = cdp.evaluate(
+        "(() => { const b=document.querySelector(%s);"
+        " if (!b) return false; b.click(); return true; })()" % json.dumps(NEW_CHAT_BUTTON)
+    )
+    if not clicked:
+        cdp.call("Page.navigate", {"url": "https://muse.ai/thread/new"})
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        time.sleep(0.5)
+        cur = (cdp.evaluate("location.href") or "").rstrip("/")
+        if cur.endswith("/thread/new"):
+            return cur
+        tid = thread_id(cur)
+        if tid and tid != before:
+            return cur
+    raise RuntimeError(
+        "khong mo duoc chat moi (van o %s) - bo qua, khong gui de tranh lam ban chat sai"
+        % before_url
+    )
+
+
+def wait_committed_thread(cdp: CDP, want_tid: str = "", timeout: float = 45) -> str:
+    """Sau khi gui, SPA moi chuyen URL tu /thread/new sang /thread/<uuid>.
+
+    Cho den khi URL co UUID that roi moi tra ve. Het gio thi tra ve URL hien
+    tai (chu phai thread that) - caller phai kiem tra lai co UUID hay khong.
+    """
+    deadline = time.time() + timeout
+    cur = ""
+    while time.time() < deadline:
+        cur = cdp.evaluate("location.href") or ""
+        tid = thread_id(cur)
+        if tid and (not want_tid or tid == want_tid):
+            return cur
+        time.sleep(1)
+    return cur
+
+
 def open_muse(cdp: CDP, url: str, thread: str | None, new_chat: bool) -> str:
+    """Mo DUNG chat can gui va xac nhan lai truoc khi dan tin.
+
+    Khong xac dinh duoc chat -> raise. Khong bao gio dan tin vao nham chat
+    khac cua nguoi dung (truoc day tin danh thuc roi vao Main chat va cac
+    thread do driver doan tu History).
+    """
     cdp.call("Page.enable")
     cdp.call("Runtime.enable")
+    want = thread_id(thread) if thread else ""
+    if thread and not want:
+        raise RuntimeError(
+            "thread khong phai URL thread hop le (%s) - bo qua, khong gui" % thread
+        )
     if thread:
         cdp.call("Page.navigate", {"url": thread})
     elif new_chat:
-        base = url.rstrip("/")
-        if base.endswith("/thread/new"):
-            new_url = base
-        elif "/thread/" in base:
-            new_url = base.rsplit("/thread/", 1)[0] + "/thread/new"
-        else:
-            new_url = base + "/thread/new"
-        cdp.call("Page.navigate", {"url": new_url})
+        start_new_chat(cdp)
     else:
         cdp.call("Page.navigate", {"url": url})
     # doi cho trang load xong
@@ -327,7 +415,55 @@ def open_muse(cdp: CDP, url: str, thread: str | None, new_chat: bool) -> str:
             break
         time.sleep(0.5)
     time.sleep(2)
-    return cdp.evaluate("location.href") or url
+    cur = cdp.evaluate("location.href") or ""
+    if want and thread_id(cur) != want:
+        raise RuntimeError(
+            "khong mo duoc thread %s (dang o %s) - bo qua, khong gui de tranh lam ban chat sai"
+            % (want, cur)
+        )
+    return cur
+
+
+def clear_composer(cdp: CDP) -> None:
+    """Xoa sach o chat bang phim (Ctrl+A -> Delete).
+
+    Phai dung phim thuc, khong dung setter cua DOM: app React bo qua gia tri
+    setter. Neu con text cu (vd lan truoc gui that bai, hay dry-run) thi tin sau
+    se bi NOI them vao -> noi dung sai.
+    """
+    keys = (
+        {
+            "type": "rawKeyDown",
+            "modifiers": 2,  # Ctrl
+            "key": "a",
+            "code": "KeyA",
+            "windowsVirtualKeyCode": 65,
+            "nativeVirtualKeyCode": 65,
+        },
+        {
+            "type": "keyUp",
+            "key": "a",
+            "code": "KeyA",
+            "windowsVirtualKeyCode": 65,
+            "nativeVirtualKeyCode": 65,
+        },
+        {
+            "type": "rawKeyDown",
+            "key": "Delete",
+            "code": "Delete",
+            "windowsVirtualKeyCode": 46,
+            "nativeVirtualKeyCode": 46,
+        },
+        {
+            "type": "keyUp",
+            "key": "Delete",
+            "code": "Delete",
+            "windowsVirtualKeyCode": 46,
+            "nativeVirtualKeyCode": 46,
+        },
+    )
+    for k in keys:
+        cdp.call("Input.dispatchKeyEvent", k)
 
 
 def fill_composer(cdp: CDP, text: str) -> None:
@@ -338,13 +474,17 @@ def fill_composer(cdp: CDP, text: str) -> None:
     )
     if found != "OK":
         raise RuntimeError("khong tim thay o chat tren trang: %s" % found)
+    clear_composer(cdp)
     cdp.call("Input.insertText", {"text": text}, timeout=120)
     length = cdp.evaluate(
         "(() => { const ta = document.querySelector(%s); return ta ? ta.value.length : -1; })()"
         % json.dumps(COMPOSER)
     )
-    if length < len(text) * 0.9:
-        raise RuntimeError("chi dan duoc %d/%d ky tu vao o chat" % (length, len(text)))
+    if abs(length - len(text)) > max(10, len(text) // 10):
+        raise RuntimeError(
+            "o chat chua dung noi dung gui (%d ky tu, can %d) - co text cu chua xoa?"
+            % (length, len(text))
+        )
 
 
 def assistant_messages(cdp: CDP) -> list:
@@ -542,7 +682,7 @@ def cmd_send(args) -> int:
     ensure_chrome(
         args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
     )
-    page = find_page(args.cdp_port)
+    page = attach_page(args.cdp_port, args.thread or None)
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
         target = args.thread or args.url
@@ -565,7 +705,8 @@ def cmd_send(args) -> int:
             press_enter(cdp)
             time.sleep(2)
         print("SENT=%s" % sent)
-        print("THREAD_URL=%s" % (cdp.evaluate("location.href") or ""))
+        # Chat moi chi co UUID sau khi tin dau tien duoc gui -> cho URL commit.
+        print("THREAD_URL=%s" % wait_committed_thread(cdp, thread_id(args.thread or "")))
         # Cho tra loi MOI that su: so sanh NOI DUNG voi truoc khi gui (dem so
         # tin de hut khi thread cu render them tin sau khi chuyen trang), va
         # doi agent xong viec (het trang thai dang chay) moi lay reply.
@@ -605,13 +746,7 @@ def cmd_say(args) -> int:
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
         if args.thread:
-            cdp.call("Page.enable")
-            cdp.call("Page.navigate", {"url": args.thread})
-            for _ in range(40):
-                time.sleep(0.5)
-                if cdp.evaluate("document.readyState") in ("interactive", "complete"):
-                    break
-            time.sleep(2)
+            open_muse(cdp, args.thread, args.thread, False)
         with open(args.file, "r", encoding="utf-8") as fh:
             text = fh.read()
         fill_composer(cdp, text)
@@ -621,7 +756,7 @@ def cmd_say(args) -> int:
         else:
             press_enter(cdp)
         print("SENT=True")
-        print("THREAD_URL=%s" % (cdp.evaluate("location.href") or ""))
+        print("THREAD_URL=%s" % wait_committed_thread(cdp, thread_id(args.thread or "")))
         if args.wait_for:
             deadline = time.time() + args.timeout
             while time.time() < deadline:
@@ -635,67 +770,6 @@ def cmd_say(args) -> int:
         cdp.close()
 
 
-def candidate_threads(profile_src: str, profile_dir: str, limit: int = 12) -> list:
-    """Danh sach URL thread muse.ai tu History cua Chrome profile (moi nhat truoc)."""
-    hist = os.path.join(profile_src, profile_dir, "History")
-    if not os.path.isfile(hist):
-        return []
-    tmp = None
-    try:
-        fd, tmp = tempfile.mkstemp(prefix="muse-hist-", suffix=".db")
-        os.close(fd)
-        shutil.copy2(hist, tmp)
-        con = sqlite3.connect(tmp)
-        rows = con.execute(
-            "select url from urls where url like '%muse.ai/thread/%' and url not like '%/new' "
-            "order by last_visit_time desc limit ?",
-            (limit,),
-        ).fetchall()
-        con.close()
-    except (OSError, sqlite3.Error):
-        return []
-    finally:
-        if tmp and os.path.exists(tmp):
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-    seen = []
-    for (url,) in rows:
-        if url not in seen:
-            seen.append(url)
-    return seen
-
-
-def cmd_find_thread(args) -> int:
-    """Tim thread web cua Agent Muse theo cong tunnel (de auto-repair khong can copy/paste)."""
-    ensure_chrome(
-        args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
-    )
-    page = find_page(args.cdp_port)
-    cdp = CDP(page["webSocketDebuggerUrl"])
-    try:
-        cdp.call("Page.enable")
-        cdp.call("Runtime.enable")
-        needle = str(args.port)
-        for url in candidate_threads(args.profile_src, args.profile_dir):
-            cdp.call("Page.navigate", {"url": url})
-            for _ in range(40):
-                time.sleep(0.5)
-                if cdp.evaluate("document.readyState") in ("interactive", "complete"):
-                    break
-            time.sleep(2)
-            text = page_text(cdp) or ""
-            if needle in text:
-                print("THREAD=%s" % url)
-                print("THREAD_URL=%s" % url)
-                return 0
-        print("THREAD_URL=")
-        return 1
-    finally:
-        cdp.close()
-
-
 def cmd_reply(args) -> int:
     ensure_chrome(
         args.cdp_port, args.profile_src, args.clone_dir, headed=args.headed, profile_dir=args.profile_dir
@@ -704,13 +778,7 @@ def cmd_reply(args) -> int:
     cdp = CDP(page["webSocketDebuggerUrl"])
     try:
         if args.thread:
-            cdp.call("Page.enable")
-            cdp.call("Page.navigate", {"url": args.thread})
-            for _ in range(40):
-                time.sleep(0.5)
-                if cdp.evaluate("document.readyState") in ("interactive", "complete"):
-                    break
-            time.sleep(2)
+            open_muse(cdp, args.thread, args.thread, False)
         if args.wait_for:
             deadline = time.time() + args.timeout
             text = ""
@@ -770,9 +838,6 @@ def main() -> int:
     approve_p.add_argument("--mode", default="once", choices=["once", "always", "deny"])
     approve_p.add_argument("--rounds", type=int, default=6)
 
-    ft = sub.add_parser("find-thread")
-    ft.add_argument("--port", required=True, help="cong tunnel cua host, de tim chat tuong ung")
-
     r = sub.add_parser("reply")
     r.add_argument("--wait-for", default="")
     r.add_argument("--timeout", type=float, default=120)
@@ -805,8 +870,6 @@ def main() -> int:
                 cdp.close()
         if args.cmd == "reply":
             return cmd_reply(args)
-        if args.cmd == "find-thread":
-            return cmd_find_thread(args)
     except Exception as exc:  # noqa: BLE001
         print("muse_web: %s" % exc, file=sys.stderr)
         return 1

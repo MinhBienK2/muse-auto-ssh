@@ -163,7 +163,7 @@ ok "bundle keo tu may ngoai co helper python" \
 echo "== 9. proxy helper chay duoc khi container THIEU socat"
 # PATH gia khong co socat -> ts-socat-proxy.sh phai fallback sang python
 mkdir -p "$TMP/fakebin"
-for b in bash timeout cat python3 dirname; do
+for b in bash timeout cat python3 dirname mktemp; do
   p="$(command -v "$b" 2>/dev/null || true)"
   [ -n "$p" ] && ln -sf "$p" "$TMP/fakebin/$b"
 done

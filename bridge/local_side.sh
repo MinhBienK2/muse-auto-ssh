@@ -880,19 +880,61 @@ cmd_prompt() {
   [ "$want_print" = "1" ] && cat "$out"
 
   if [ "$want_send" = "1" ]; then
-    say "gui prompt vao web Muse (chat moi)..."
-    local web_out thread
-    web_out="$(muse_web_send "$out" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
-    printf '%s\n' "$web_out" > "$REPO_HOSTS_DIR/$HOST/prompt-send.log"
-    thread="$(echo "$web_out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+    local thread; thread="$(host_bridge_thread)"
     if [ -n "$thread" ]; then
-      python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread" >/dev/null 2>&1 || true
-      say "thread: $thread"
+      say "gui prompt vao chat rieng da co cua host..."
+    else
+      say "gui prompt vao web Muse (chat rieng moi cua bridge)..."
+    fi
+    local web_out
+    web_out="$(muse_web_send "$out" "$thread" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
+    printf '%s\n' "$web_out" > "$REPO_HOSTS_DIR/$HOST/prompt-send.log"
+    thread="$(printf '%s' "$web_out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+    if [ -n "$thread" ]; then
+      save_bridge_thread "$thread" \
+        || warn "khong luu duoc chat rieng vao card -> auto-repair qua web se tao chat moi moi lan"
     else
       warn "khong lay duoc THREAD_URL -> card khong co 'thread', auto-repair qua web se khong chay"
     fi
     printf '%s\n' "$web_out"
   fi
+  return 0
+}
+
+# ------------------------------------------------------------------ chat rieng
+# Chat rieng cua bridge cho host: /thread/<uuid> luu trong card.
+# Da co -> in ra. Chua co -> tao moi: chat tren muse.ai chi co UUID sau tin
+# dau tien duoc gui -> gui 1 tin ngan roi luu UUID vao card.
+cmd_chat() {
+  parse_flags "$@"
+  require_host
+  local thread; thread="$(host_bridge_thread)"
+  if [ -n "$thread" ]; then
+    say "chat rieng cua host '$HOST': $thread"
+    printf '%s\n' "$thread"
+    return 0
+  fi
+  local port; port="$(host_peer_port "$HOST")"
+  local dir="$REPO_HOSTS_DIR/$HOST"
+  mkdir -p "$dir"
+  local msg="$dir/chat-create.txt"
+  printf '%s\n' \
+    "Đây là chat riêng của bridge SSH trên máy tôi (host $HOST, cổng $port)." \
+    "" \
+    "Từ giờ các tin đánh thức và tin khởi động của bridge sẽ gửi vào chat này, không gửi vào chat khác." \
+    "" \
+    "Bạn không cần làm gì cả. Nếu đọc được tin này thì chỉ trả lời đúng một dòng: BRIDGE_CHAT_OK" > "$msg"
+  say "tao chat rieng cho host '$HOST' (gui 1 tin de chat co UUID)..."
+  local out; out="$(muse_web_send "$msg" "" "BRIDGE_CHAT_OK" 180)"
+  printf '%s\n' "$out" > "$dir/chat-create.log"
+  local new_thread
+  new_thread="$(printf '%s' "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+  if ! is_thread_url "$new_thread"; then
+    warn "khong tao duoc chat rieng (khong lay duoc UUID) - xem $dir/chat-create.log"
+    return 1
+  fi
+  save_bridge_thread "$new_thread" || { warn "khong luu duoc chat rieng vao card"; return 1; }
+  printf '%s\n' "$new_thread"
   return 0
 }
 
@@ -951,11 +993,38 @@ muse_web_args() {
   MUSE_WEB_ARGS=(--cdp-port "$cdp_port" --profile-dir "$profile_dir" --clone-dir "$clone_dir")
 }
 
-muse_web_send() {  # $1 = file, $2 = thread (rong = tao chat moi), $3 = wait regex
-  local file="$1" thread="$2" wait="$3"
-  local args=(send --file "$file" --url "$MUSE_URL" --wait-for "$wait" --timeout "$WAIT_TIMEOUT")
-  [ -n "$thread" ] && args+=(--thread "$thread")
-  [ -n "$thread" ] || args+=(--new-chat)
+# Chat RIENG cua bridge cho host nay (card field "thread").
+# KHONG dung trang goc "https://muse.ai/" - do la Main chat cua nguoi dung:
+# tin danh thuc roi vao do se lam ban chat lai mot chat khac cua ban.
+is_thread_url() {
+  printf '%s' "${1:-}" | grep -qE '^https://[^/]+/thread/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+}
+
+# Chat rieng da luu trong card (rong neu chua co hoac khong hop le).
+host_bridge_thread() {
+  local t; t="$(card_field "$HOST" "thread")"
+  is_thread_url "$t" && printf '%s' "$t"
+}
+
+# Luu chat rieng cua bridge vao card -> lan sau dung lai, khong tao chat moi.
+save_bridge_thread() {
+  local url="${1:-}" port
+  is_thread_url "$url" || return 1
+  port="$(host_peer_port "$HOST")"
+  python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$url" >/dev/null 2>&1 || return 1
+  say "chat rieng cua bridge: $url"
+  return 0
+}
+
+muse_web_send() {  # $1 = file, $2 = thread (rong = tao chat moi), $3 = wait regex, $4 = timeout
+  local file="$1" thread="$2" wait="$3" timeout="${4:-$WAIT_TIMEOUT}"
+  local args=(send --file "$file" --url "$MUSE_URL" --wait-for "$wait" --timeout "$timeout")
+  if [ -n "$thread" ]; then
+    is_thread_url "$thread" || die "thread khong phai URL thread hop le: $thread"
+    args+=(--thread "$thread")
+  else
+    args+=(--new-chat)
+  fi
   muse_web_args
   python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" "${args[@]}" 2>&1
 }
@@ -969,7 +1038,8 @@ cmd_onboard() {
   local dir="$REPO_HOSTS_DIR/$HOST"
   local prompt_file="$dir/MUSE_PROMPT.md"
   local reply_file="$dir/reply.txt"
-  local thread=""
+  # Chat rieng cua host (da co -> dung lai; chua co -> tao moi sau khi gui).
+  local thread; thread="$(host_bridge_thread)"
 
   say "=== ONBOARD host '$HOST' (port $port) ==="
   ensure_sshd
@@ -984,10 +1054,10 @@ cmd_onboard() {
   # Prompt da day du thong so: Agent Muse tu lam A->Z va tu bao status block
   # (MUSE_PROBE / MUSE_PUBKEY / ...). Khong can vong lap doi thoai nhu prompt 4 buoc.
   say "gui prompt vao web Muse ($MUSE_URL) ..."
-  local out; out="$(muse_web_send "$prompt_file" "" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
+  local out; out="$(muse_web_send "$prompt_file" "$thread" "MUSE_PROBE|MUSE_HOST|MUSE_TUNNEL|DIRECT_OK")"
   echo "$out" > "$dir/web.log"
-  thread="$(echo "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
-  say "thread: ${thread:-unknown}"
+  thread="$(printf '%s' "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+  say "chat rieng cua bridge: ${thread:-unknown}"
 
   # --- 2) doc status block -> authorize public key cua container -----------
   # Status block la hop dong: 7 dong KEY=value. Chi doc dung ten bien, KHONG
@@ -1020,10 +1090,12 @@ cmd_onboard() {
     warn "chua thac ket noi duoc host tren port $port (xem $dir/web.log)"
   fi
 
-  # Luu thread vao card: lop 4 (auto-repair qua web) can thread de danh thuc
-  # container bi dong bang. Khong luu -> host moi khong bao gio duoc danh thuc.
+  # Luu chat rieng vao card: lop 4 (auto-repair qua web) can dung chat do de
+  # danh thuc container bi dong bang. Khong luu -> host moi khong bao gio duoc
+  # danh thuc (va lan sau se tao chat moi -> nhieu session -> de bi chan spam).
   if [ -n "$thread" ]; then
-    python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread"
+    save_bridge_thread "$thread" \
+      || warn "khong luu duoc chat rieng vao card -> auto-repair qua web se tao chat moi moi lan"
   else
     warn "khong lay duoc THREAD_URL tu web -> card khong co 'thread', auto-repair qua web se khong chay"
   fi
@@ -1103,23 +1175,16 @@ muse_repair_over_ssh() {
 }
 
 # ------------------------------------------------------------------ repair (auto-wake)
-# Tim thread web cua host khi card chua luu (host moi, hoac card bi xoa).
-# Dung driver web cua dung account (Chrome profile rieng cua host) -> dung
-# side chat/chat cua Agent Muse.
-find_thread_web() {
-  local port="$1"
-  local out
-  muse_web_args
-  out="$(python3 "$MUSE_WEB" "${MUSE_WEB_ARGS[@]}" find-thread --port "$port" 2>&1)" || return 1
-  printf '%s' "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-
-}
-
+# Chat rieng cua bridge (card field "thread") la noi duy duoc gui tin danh thuc.
+# KHONG doan thread: truoc day driver quet History Chrome profile roi chon
+# thread dau tien co chu so cong -> tin danh thuc roi vao chat cua nguoi dung.
+# Khong co chat rieng -> tao chat moi (1 lan) roi luu vao card.
 cmd_repair() {
   parse_flags "$@"
   require_host
   local port; port="$(host_peer_port "$HOST")"
   local dir="$REPO_HOSTS_DIR/$HOST"
-  local thread; thread="$(card_field "$HOST" "thread")"
+  local thread; thread="$(host_bridge_thread)"
 
   if host_reachable "$port"; then
     repair_gate_reset
@@ -1147,18 +1212,7 @@ cmd_repair() {
   fi
 
   if [ -z "$thread" ]; then
-    say "host '$HOST' chua luu thread web -> thu tim qua driver web..."
-    thread="$(find_thread_web "$port" || true)"
-    if [ -n "$thread" ]; then
-      say "da tim thread: $thread"
-      python3 "$REPO_DIR/scripts/update_host_state.py" "$(host_card "$HOST")" "$port" --thread "$thread"
-    fi
-  fi
-  if [ -z "$thread" ]; then
-    warn "host '$HOST' chua luu thread web -> khong tu danh thuc duoc."
-    warn "Mo https://muse.ai/ va day len chat cua Agent Muse:"
-    warn "  \"Kenh SSH toi may toi bi tat. Ban hay mo lai reverse tunnel cong $port (dung lenh da dung truoc do) roi bao toi.\""
-    return 1
+    say "host '$HOST' chua co chat rieng -> tao chat moi cho bridge (lan dau)"
   fi
 
   say "kenh chet -> gui tin nhan danh thuc container '$HOST'..."
@@ -1187,6 +1241,14 @@ cmd_repair() {
 
   local out; out="$(muse_web_send "$msg" "$thread" "tunnel|da mo|$port")"
   echo "$out" >> "$dir/repair.log" 2>/dev/null || true
+  # Lan dau (chua co chat rieng): vua tao chat moi -> luu UUID vao card de
+  # cac lan sau dung lai, khong tao them session (nhieu chat = de bi chan spam).
+  local new_thread
+  new_thread="$(printf '%s' "$out" | grep -oE 'THREAD_URL=https://[^ ]+' | head -1 | cut -d= -f2-)"
+  if [ -n "$new_thread" ] && [ "$new_thread" != "$thread" ]; then
+    save_bridge_thread "$new_thread" \
+      || warn "khong luu duoc chat rieng vao card -> lan sau se tao chat moi"
+  fi
 
   say "cho container phuc hoi (toi da 120s)..."
   local _i
@@ -1301,6 +1363,7 @@ case "${1:-}" in
   remove-host) shift; cmd_remove_host "$@" ;;
   authorize) shift; cmd_authorize "$@" ;;
   onboard)   shift; cmd_onboard "$@" ;;
+  chat)      shift; cmd_chat "$@" ;;
   repair)   shift; cmd_repair "$@" ;;
   reprovision) shift; cmd_reprovision "$@" ;;
   provision) shift; parse_flags "$@"; require_host

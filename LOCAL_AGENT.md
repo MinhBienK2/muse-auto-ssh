@@ -97,6 +97,12 @@ bash scripts/bridge.sh onboard --host muse2
 > `sleep` + `reply`. Reply có khối `LINKS:` cuối file — URL thật đã giải mã redirect `l.meta.ai`
 > (link duyệt node Tailscale hay bị cắt token khỏi text hiển thị, chỉ còn trong href).
 
+> **Chỉ dùng chat riêng của host.** Mỗi host có một chat riêng (`card.thread` =
+> `https://muse.ai/thread/<uuid>`) — driver chỉ gửi vào đó. Trang gốc `https://muse.ai/` là
+> **Main chat của chính bạn** (tin của bridge rơi vào đó là làm bẩn chat riêng của bạn), và
+> driver **không đoán** thread khác (quét History rồi chọn thread có số cổng → dính chat cá
+> nhân). Không mở được đúng chat thì bỏ qua, đừng gửi nhầm. Xem PROTOCOL.md mục 8.0.1.
+
 ### 3.2. Thủ công (khi agent không tự động hoá được trình duyệt)
 
 ```bash
@@ -183,7 +189,7 @@ bash scripts/bridge.sh status --host <id>
 |---|---|
 | `PEER_STATE=DOWN` | Tunnel chết. Watchdog phía Muse tự mở lại ~10s. Nếu lâu hơn: `sudo systemctl status ssh`. |
 | `PENDING>0` | Tin chưa gửi được → `bash scripts/bridge.sh sync --host <id>`. Nếu chỉ còn 1 chiều thì `pull`. |
-| Container bị đóng băng (không tiến trình nào chạy) | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat Muse để đánh thức. |
+| Container bị đóng băng (không tiến trình nào chạy) | `bash scripts/bridge.sh repair --host <id>` — gửi tin vào chat riêng của host để đánh thức. |
 | Muốn cập nhật mã cho Muse | `bash scripts/bridge.sh push --host <id>`. |
 | Muse hiện hộp "Approval required" | Bấm Allow (script `muse_web.py approve` làm tự động). |
 | Muse nói "không qua kiểm tra an toàn" | Đừng dán lại khối script lớn. Gửi lại bằng lời, từng bước ngắn (mục 3.2). |

@@ -45,7 +45,7 @@ PROXY="/home/hatch/workspace/muse-platform-setup/tunnel/ts-socat-proxy.sh"
 python3 "$INJECT" "$HOOK" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
 check "inject chay khong loi" $?
 
-grep -q "muse-bridge watchdog v8" "$HOOK"
+grep -q "muse-bridge watchdog v9" "$HOOK"
 check "co block v8" $?
 grep -q "Auto keep SSH and G3 Reverse Tunnel alive" "$HOOK"
 if [ $? -eq 0 ]; then echo "  FAIL - block v1 con lai"; fails=$((fails+1)); else echo "  ok   - block v1 da bi go"; fi
@@ -97,7 +97,7 @@ head -1 "$HOOK" | grep -q "^#!"
 check "shebang van o dong dau (block khong chen truoc shebang)" $?
 shebang_line=$(grep -n "^#!" "$HOOK" | head -1 | cut -d: -f1)
 setline=$(grep -n "^set -euo pipefail" "$HOOK" | head -1 | cut -d: -f1)
-blockline=$(grep -n "muse-bridge watchdog v8] BEGIN" "$HOOK" | head -1 | cut -d: -f1)
+blockline=$(grep -n "muse-bridge watchdog v9] BEGIN" "$HOOK" | head -1 | cut -d: -f1)
 if [ -n "$shebang_line" ] && [ -n "$blockline" ] && [ "$blockline" -gt "$shebang_line" ]; then
   check "block v8 nam sau shebang" 0
 else
@@ -140,13 +140,20 @@ check "v8 capture banner roi khop sau" $?
 grep -q 'for try in 1 2' "$HOOK"
 check "v8 thu 2 lan truoc khi restart sshd" $?
 
+# --- v9: sshd phai ra khoi cgroup cua unit ---------------------------------
+# Loi that: sshd master + moi phien SSH dang mo nằm trong cgroup
+# "muse-reverse-tunnel-<port>.service" -> systemd restart unit -> kill ca
+# cgroup -> sshd chet + phien bi cut -> SSH mat ~15-20s.
+grep -q "system.slice/cgroup.procs" "$HOOK"
+check "v9 chuyen sshd ra khoi cgroup unit (restart unit khong cat SSH)" $?
+
 # --- inject lai phai idempotent ----------------------------------------------
 cp "$HOOK" "$TMP/hook.after1"
 python3 "$INJECT" "$HOOK" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
 diff -q "$TMP/hook.after1" "$HOOK" >/dev/null
 check "inject lai khong doi file (idempotent)" $?
 
-n=$(grep -c "muse-bridge watchdog v8] BEGIN" "$HOOK")
+n=$(grep -c "muse-bridge watchdog v9] BEGIN" "$HOOK")
 if [ "$n" = "1" ]; then
   check "chi co 1 block v8" 0
 else
@@ -166,7 +173,7 @@ p = sys.argv[1]
 with open(p) as fh:
     text = fh.read()
 with open(p, "w") as fh:
-    fh.write(text.replace("watchdog v8", "watchdog v7"))
+    fh.write(text.replace("watchdog v9", "watchdog v7"))
 PY
 python3 "$INJECT" "$HOOK_V6" "$LOOP" "$KEY" "$PROXY" "testuser" "100.64.0.1" >/dev/null
 if grep -q "watchdog v7" "$HOOK_V6"; then
@@ -174,7 +181,7 @@ if grep -q "watchdog v7" "$HOOK_V6"; then
 else
   echo "  ok   - block v7 cu da bi go, thay bang v8"
 fi
-grep -q "watchdog v8] BEGIN" "$HOOK_V6"
+grep -q "watchdog v9] BEGIN" "$HOOK_V6"
 check "hook v7 cu duoc nang cap len v8" $?
 
 # --- v5: so san LOOP_VERSION phai DUNG (khong restart lien tuc) --------------

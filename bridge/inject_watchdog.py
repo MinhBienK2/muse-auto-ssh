@@ -42,6 +42,13 @@ v8 sua 3 loi lam cell "chết im" (khong can chat de mo lai):
     "sshd_banner_failed" -> flapping_backoff -> refresh cell.
   - Nếu unit có nhưng không active (fail) -> hook tự chạy loop dự phòng, để
     cell không bao giờ mất tunnel.
+
+v9 sua 1 loi lam "chuyen tiep" bi cut:
+  - sshd (master + mọi phiên SSH đang mở) được start từ trong loop -> nó nằm
+    trong cgroup của unit "muse-reverse-tunnel-<port>.service". systemd restart
+    unit -> kill CẢ cgroup -> sshd chết + các phiên SSH đang mở bị đứt ->
+    SSH mất ~15-20s và lệnh push/session của người dùng bị cắt. Hook (và
+    loop) chuyển sshd sang system.slice -> restart unit không lấy sshd theo.
 """
 
 from __future__ import annotations
@@ -50,15 +57,15 @@ import os
 import re
 import sys
 
-BEGIN = "# [muse-bridge watchdog v8] BEGIN"
-END = "# [muse-bridge watchdog v8] END"
+BEGIN = "# [muse-bridge watchdog v9] BEGIN"
+END = "# [muse-bridge watchdog v9] END"
 
 # Template dung placeholder "@@NAME@@" + str.replace, KHONG dung "%"-format.
 # Ly do: "%"-format se an mat moi "%" literal trong shell (vi du "date +%s" ->
 # "date +{'port': '2222'}") -> nhanh tay lam hong CHINH nhanh tu cai openssh-server.
 # Dung "@@" thi "%" trong shell luon an toàn.
 BLOCK = """
-# [muse-bridge watchdog v8] BEGIN
+# [muse-bridge watchdog v9] BEGIN
 # Block chay sau "set -euo pipefail" -> phai tu phong loi (hook khong duoc FAIL)
 set +e
 set +u
@@ -144,6 +151,20 @@ if [ -n "$BANNER" ]; then
     sleep 1
     /usr/sbin/sshd >/dev/null 2>&1 || true
 fi
+# 1e) sshd ra khoi cgroup cua unit "muse-reverse-tunnel-@@PORT@@.service".
+#     Ly do: unit do systemd restart -> systemd kill CA cgroup -> sshd master
+#     + MOI phien SSH dang mo cung bi giet -> SSH mat ~15-20s (va lenh
+#     push/session cua nguoi dung dang chay bi cut). Chuyen sshd sang
+#     system.slice (ngoai unit) -> restart unit khong con lay sshd theo.
+if [ -w /sys/fs/cgroup/system.slice/cgroup.procs ]; then
+    for ssshd_pid in $(pgrep -x sshd 2>/dev/null || true); do
+        ssshd_cg="$(awk -F: '/^0::/{print $3}' "/proc/$ssshd_pid/cgroup" 2>/dev/null || true)"
+        case "$ssshd_cg" in
+            ""|"/") continue ;;
+        esac
+        echo "$ssshd_pid" > /sys/fs/cgroup/system.slice/cgroup.procs 2>/dev/null || true
+    done
+fi
 # 2) dam bao co DUNG MOT supervisor cho port @@PORT@@:
 #    - co systemd -> unit per-port la CHINH, hook chi kick no
 #    - khong co systemd -> hook tu chay loop
@@ -187,17 +208,30 @@ if [ -f "$BUNDLE_PROXY" ] && [ -d "$TUNNEL_DIR" ] && ! cmp -s "$BUNDLE_PROXY" "$
 fi
 #    SO SAN GIA TRI THUAN cua LOOP_VERSION (v7), khong phai ca cum "LOOP_VERSION=\"v7\"".
 #    Sai cach nay -> restart lien tuc -> tunnel chop chop.
+#    v9: CHI restart khi mismatch LAP LAI 2 vong hook lien tiep. Ly do: loop tu
+#    keo bundle va exec lai chinh no (ghi .loop_version sau ~1-2 giay) -> hook bat
+#    qay "doi file" va "ghi .loop_version" se restart unit -> kill ca cgroup ->
+#    tunnel + sshd chet ~20-30s -> SSH mat o MOI host, lenh push bi cut.
 WANT="$(grep -o 'LOOP_VERSION="[^"]*"' "@@LOOP@@" 2>/dev/null | head -1 | sed 's/.*="//; s/"$//' || true)"
 HAVE="$(cat "$(dirname "@@LOG@@")/.loop_version" 2>/dev/null | tr -d '[:space:]' || true)"
 if [ -n "$WANT" ] && [ "$WANT" != "$HAVE" ]; then
-    if [ "$HAVE_SYSTEMD" = "1" ] && [ -f "/etc/systemd/system/$UNIT" ]; then
-        # systemd restart thay vi pkill: pkill lam race voi Restart=always -> 2 supervisor
-        systemctl restart "$UNIT" >/dev/null 2>&1 || true
+    WD_MARK="/home/hatch/.muse-bridge/.wd_ver_@@PORT@@"
+    WD_PREV="$(cat "$WD_MARK" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ "$WD_PREV" = "$WANT" ]; then
+        # mismatch 2 vong lien tiep -> loop khong tu cap nhat duoc -> restart that
+        if [ "$HAVE_SYSTEMD" = "1" ] && [ -f "/etc/systemd/system/$UNIT" ]; then
+            # systemd restart thay vi pkill: pkill lam race voi Restart=always -> 2 supervisor
+            systemctl restart "$UNIT" >/dev/null 2>&1 || true
+        else
+            pkill -f "[b]ash @@LOOP@@" >/dev/null 2>&1 || true
+            pkill -f -- "[s]sh .*-R @@PORT@@:" >/dev/null 2>&1 || true
+        fi
+        rm -f "$WD_MARK" 2>/dev/null || true
+        sleep 2
     else
-        pkill -f "[b]ash @@LOOP@@" >/dev/null 2>&1 || true
-        pkill -f -- "[s]sh .*-R @@PORT@@:" >/dev/null 2>&1 || true
+        mkdir -p /home/hatch/.muse-bridge 2>/dev/null || true
+        printf '%s' "$WANT" > "$WD_MARK" 2>/dev/null || true
     fi
-    sleep 2
 fi
 # 4) fallback: CHI khi khong co systemd unit (hoac unit co ma khong active)
 #    moi tu chay loop. Neu unit dang active -> KHONG duoc spawn them (2
@@ -211,7 +245,7 @@ if [ "$HAVE_SYSTEMD" != "1" ] || [ ! -f "/etc/systemd/system/$UNIT" ] \\
     fi
 fi
 set -eu
-# [muse-bridge watchdog v8] END
+# [muse-bridge watchdog v9] END
 """
 
 # TAIL: hook PHAI ket thuc bang HATCH_HOOK_RESULT (Hatch goi "failed" neu thieu).
@@ -219,7 +253,7 @@ set -eu
 # roi ket thuc o day. Hook da co silent that (muse-platform) -> da thoat truoc
 # TAIL, dong nay khong duoc chay.
 TAIL = """
-# [muse-bridge watchdog v8] TAIL
+# [muse-bridge watchdog v9] TAIL
 if ! declare -F silent >/dev/null 2>&1; then
     silent() { printf 'HATCH_HOOK_RESULT:{"decision":"silent","reason":"%s"}\\n' "${1:-ok}"; exit 0; }
 fi
@@ -301,7 +335,7 @@ def main(argv: list) -> int:
 
     with open(hook, "w", encoding="utf-8") as fh:
         fh.write(content)
-    print("inject_watchdog: watchdog v8 da duoc inject vao %s" % hook)
+    print("inject_watchdog: watchdog v9 da duoc inject vao %s" % hook)
     return 0
 
 

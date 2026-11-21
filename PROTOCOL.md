@@ -296,8 +296,8 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 
 | Lớp | Chạy ở đâu | Cơ chế | Đã kiểm chứng |
 |---|---|---|---|
-| 1. **systemd service** `muse-reverse-tunnel-<port>.service` — **supervisor chính** | container Muse | `ExecStart` = loop tunnel; `Restart=always` + `RestartSec=5` + `StartLimitIntervalSec=0` (không bao giờ rơi vào `failed` vì đạt giới hạn start); **loop tự sinh lại file unit** (một nguồn duy nhất) nên `/etc` bị wipe vẫn tự dựng được | ✅ 4/4 cell: `active`, `enabled`, `NRestarts=0` |
-| 2. **Watchdog v8** trong Hatch boot hook — *lớp dự phòng* | container Muse | Bảo đảm **unit tồn tại + active** (`--write-unit` → `enable` → `reset-failed` → `start`); `sshd` phải **trả lời banner** (treo → restart, nhưng **chỉ sau 2 lần liên tiếp**); mất `openssh-server` sau refresh → cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ inject v8 trên 4/4 cell |
+| 1. **systemd service** `muse-reverse-tunnel-<port>.service` — **supervisor chính** | container Muse | `ExecStart` = loop tunnel; `Restart=always` + `RestartSec=5` + `StartLimitIntervalSec=0` (không bao giờ rơi vào `failed` vì đạt giới hạn start); **loop tự sinh lại file unit** (một nguồn duy nhất) nên `/etc` bị wipe vẫn tự dựng được; **`sshd` được chuyển ra khỏi cgroup của unit** (xem 8.3) để restart unit không cắt SSH | ✅ 4/4 cell: `active`, `enabled`, `NRestarts=0` |
+| 2. **Watchdog v9** trong Hatch boot hook — *lớp dự phòng* | container Muse | Bảo đảm **unit tồn tại + active** (`--write-unit` → `enable` → `reset-failed` → `start`); `sshd` phải **trả lời banner** (treo → restart, nhưng **chỉ sau 2 lần liên tiếp**); mất `openssh-server` sau refresh → cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; **chỉ restart unit khi mismatch version lặp lại 2 vòng**; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ inject v9 trên 4/4 cell |
 | 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` + `authorized_keys` + mở lại `ssh -R` nếu chết (backoff khi chết liên tục); **tự kéo bundle** từ máy ngoài (mỗi 5 vòng) và `exec` lại chính nó → code mới có hiệu lực **không cần hook**; tự cài unit systemd nếu thiếu | ✅ giết loop + `sshd` → port ngoài lại **sau 19s** |
 | 4. **Auto-repair qua web** (tùy chọn, **mặc định TẮT**) | máy ngoài | `bridge.sh repair --host <id>`: gửi tin vào **chat riêng của host** để đánh thức container **đã đóng băng hoàn toàn**; chỉ chạy khi `MUSE_WAKE_ALLOW=1` | ⏸ mặc định tắt — SSH **không** cần lớp này để tự phục hồi |
 
@@ -332,13 +332,14 @@ Sự cố 21/11/2026 (SSH mất ~45 phút trên các cell) đã được truy ng
 
 | Bằng chứng | Kết luận |
 |---|---|
-| `hatch-execd` (hook runner) là tiến trình **con của agent session** | Platform pause session → hook chết → **mọi thứ hook spawn cũng chết** |
+| `hatch-execd` (hook runner) là tiến trình **con của agent session**; `hatch-execd.service` của systemd **không chạy** (`ActiveState=inactive`, `ExecStartPre` cần `/opt/hatch/runtime-cell/runtime-cell.ready` — file này không tồn tại) | Hook runner do **nền tảng** quản lý, **không** nằm dưới systemd → chết theo session, không tự phục hồi bằng `Restart=always` |
 | Loop tunnel lúc đó do hook spawn bằng `nohup` (PPID=1 nhưng **không thuộc cgroup systemd**) | Loop là **orphan**: chết theo session, **không ai bật lại** → mất SSH |
 | Bundle pull của các cell dừng ở bản cũ (commit `f7a3cbb`, có logic systemd) | Bản sửa **đã commit nhưng chưa được đẩy** → fix nằm trên máy, không có trong container |
 | `systemctl status` sau khi sửa: `Active: active (running)`, `Main PID` = loop, `CGroup: /system.slice/muse-reverse-tunnel-<port>.service` | Supervisor = **systemd (PID 1)**, sống qua lúc platform pause agent session |
 | Kill thử trên cell thật: giết cả loop **và** `sshd` → port ngoài lại nhận **sau 19 s** | Tự phục hồi **không cần chat, không cần wake** |
+| `sshd` master **và mọi phiên SSH** nằm trong `CGroup: /system.slice/muse-reverse-tunnel-<port>.service` (vì được start từ trong loop) | `systemctl restart unit` → kill **cả cgroup** → `sshd` chết + **phiên SSH đang mở bị cắt** → SSH mất ~20-30 s, lệnh `push` bị fail |
 
-Ba quy tắc rút ra, áp dụng cho mọi thay đổi sau này:
+Bốn quy tắc rút ra, áp dụng cho mọi thay đổi sau này:
 
 1. **Loop tunnel KHÔNG được chạy bằng `nohup` từ hook.** Nó phải là `ExecStart` của unit systemd.
    Hook chỉ *bảo đảm* unit (sinh file → `enable` → `reset-failed` → `start`), không được làm
@@ -352,10 +353,19 @@ Ba quy tắc rút ra, áp dụng cho mọi thay đổi sau này:
    `sshd_config_invalid` → `flapping_backoff` → cell bị refresh. Vì vậy **không** pipe probe qua
    `grep -q` (grep thoát sớm → đóng sớm → RST), và chỉ restart `sshd` sau **2 lần thất bại liên tiếp**
    (một lần timeout chưa đủ để kết luận `sshd` treo).
+4. **`sshd` không được ở lại trong cgroup của unit tunnel.** Loop (và hook) chuyển `sshd` sang
+   `system.slice` (cgroup v2, `cgroup.procs`) ngay khi phát hiện → restart unit không còn giết
+   `sshd` + phiên SSH đang mở. Đồng thời watchdog **chỉ restart unit khi mismatch version lặp lại
+   2 vòng hook** (loop tự `exec` lại chính nó trong ~1-2 s, nên restart ở khoảnh thời gian đó là
+   thừa và gây gián đoạn).
 
-> **Đo được trên cell thật:** `systemctl is-active` = `active`, `NRestarts` theo dõi được,
+> **Đo được trên cell thật:** `systemctl status` = `active (running)`, `NRestarts` theo dõi được,
 > `pgrep -af "ssh .*-R <port>:"` → **đúng 1 dòng**, loop có `PPID=1` và nằm trong cgroup
 > `/system.slice/muse-reverse-tunnel-<port>.service`.
+>
+> **Cảnh báo khi kiểm tra:** `systemctl is-active /etc/systemd/system/<unit>.service` (dạng **đường
+> dẫn**) trả về `inactive` dù unit đang chạy — phải dùng **tên unit** (`muse-reverse-tunnel-<port>.service`)
+> hoặc `systemctl status`. Đừng "phát hiện" sự cố giả rồi đi sửa nhầm.
 
 ---
 

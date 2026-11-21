@@ -8,11 +8,10 @@
      Guardrail: scripts/check_prompt_sync.sh + tests/prompt_test.sh. -->
 # PROMPT CHO AGENT MUSE — dán nguyên file này vào chat của Agent Muse
 
-> Sinh tự động bởi `scripts/render_prompt.py` từ
-> `.agents/setup-ssh-muse/reference/MUSE_PROMPT.template.md` — **prompt duy nhất của repo**,
-> mọi thông số của máy tôi đã nằm sẵn trong đây nên **bạn không phải hỏi lại tôi một câu nào**.
-> Prompt này **không chứa source code** của bus: toàn bộ mã (bus, watchdog, loop tunnel) được
-> **kéo từ máy tôi** qua chính kênh SSH đã xác thực (Bước 4), không dán vào chat.
+> Sinh tự động bởi `scripts/render_prompt.py` — **prompt duy nhất của repo**, mọi thông số
+> của máy tôi đã nằm sẵn trong đây nên **bạn không phải hỏi lại tôi một câu nào**.
+> Không chứa source code: toàn bộ mã (bus, watchdog, loop tunnel) được **kéo từ máy tôi**
+> qua chính kênh SSH đã xác thực (Bước 4), không dán vào chat.
 
 ---
 
@@ -81,8 +80,8 @@ echo "KEY=$KEY"
 
 Cho phép máy tôi đăng nhập vào container của bạn. `sshd` chạy user `root` nên đọc
 `/root/.ssh/authorized_keys`; `/root` bị xoá khi refresh → giữ **bản gốc** ở
-`/home/hatch/.ssh/authorized_keys` rồi **copy** (không symlink — `/home/hatch` group-writable
-là `sshd` bật `StrictModes` sẽ từ chối key) sang `/root/.ssh/authorized_keys`.
+`/home/hatch/.ssh/authorized_keys` rồi **copy** (không symlink — `sshd` bật `StrictModes`
+sẽ từ chối key) sang `/root/.ssh/authorized_keys`.
 
 ```bash
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
@@ -92,8 +91,8 @@ cp -f /home/hatch/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /
 echo KEY_OK
 ```
 
-Đặt tên node Tailscale **đúng host id** (best-effort — CLI có thể là bản rút gọn của nền
-tảng, không đổi được tên; lỗi thì **bỏ qua, không dừng**, ghi chú vào báo cáo Bước 7):
+Đặt tên node Tailscale **đúng host id** (best-effort: CLI có thể không đổi được tên; lỗi
+thì **bỏ qua, không dừng**, ghi vào báo cáo Bước 7):
 
 ```bash
 TS="$(command -v tailscale || echo /opt/hatch/bin/tailscale)"
@@ -171,8 +170,7 @@ timeout 120 ssh -i "$KEY" -o "ProxyCommand=python3 /home/hatch/.ssh/ts-proxy.py 
 ls -la /home/hatch/.muse-bridge/bundle
 ```
 
-Nếu `BUNDLE_OK` không xuất hiện → **bỏ qua, sang Bước 5b**; tôi sẽ đẩy bundle qua kênh SSH
-bạn vừa mở.
+Nếu `BUNDLE_OK` không xuất hiện → **bỏ qua, sang Bước 5b**.
 
 ## Bước 5 — Dựng tunnel + tự phục hồi (supervisor chính = systemd)
 
@@ -185,7 +183,7 @@ bash /home/hatch/.muse-bridge/bundle/muse_side.sh setup \
 ```
 
 Lệnh này tự lo toàn bộ: `sshd`, key, proxy, **loop tunnel tự reconnect mỗi 10s**, **unit systemd
-`Restart=always` + `StartLimitIntervalSec=0`** (tự lên lại ≤5s sau khi platform giet process),
+`Restart=always` + `StartLimitIntervalSec=0`** (tự lên ≤5s),
 **watchdog 15s (Hatch hook)**, cấu hình bus, rồi gửi `HELLO`/`REPORT` về máy tôi.
 
 ### 5b — Cách dựng phòng (bundle không có)
@@ -256,8 +254,8 @@ MUSE_PROBE=OK|FAILED
 ```
 
 **Block này là hợp đồng, không phải lời chào.** Agent Ngoài trên máy tôi sẽ **paste nguyên block**
-để làm nốt phần còn lại (authorize `MUSE_PUBKEY`, đẩy bundle, chờ kênh sống). Thiếu dòng nào —
-nhất là `MUSE_PUBKEY`/`MUSE_TUNNEL_PORT` — thì phía tôi không hoàn tất được → in lại đủ 7 dòng.
+để làm nốt phần còn lại (authorize key, đẩy bundle, chờ kênh sống). Thiếu dòng nào — nhất là
+`MUSE_PUBKEY`/`MUSE_TUNNEL_PORT` — thì phía tôi không hoàn tất được → in lại đủ 7 dòng.
 
 Kèm 2 dòng kết luận: kênh đã thông chưa, còn cần gì từ tôi (nếu không cần thì ghi `KHONG`).
 

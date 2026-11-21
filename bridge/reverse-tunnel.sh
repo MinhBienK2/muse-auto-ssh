@@ -89,7 +89,7 @@ LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 # tro sang noi khac khi can (test cung dung bien nay).
 SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v12"
+LOOP_VERSION="v13"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
@@ -214,6 +214,24 @@ SSHD_CONFIG_EOF
   log "sshd_config khong hop le -> da viet config toi thieu moi"
 }
 
+sshd_out_of_unit_cgroup() {
+  # sshd KHONG duoc o lai trong cgroup cua unit "muse-reverse-tunnel-<port>".
+  # Ly do: unit do systemd restart -> systemd kill CA cgroup -> sshd master +
+  # MOI phien SSH dang mo cung bi giet -> SSH mat ~15-20s, va lenh
+  # (push/ghep/session cua nguoi dung) dang chay bi cut.
+  # cgroup v2 (rw): chuyen sshd sang system.slice (ngoai unit) -> restart unit
+  # khong con lay sshd theo.
+  [ -w /sys/fs/cgroup/system.slice/cgroup.procs ] || return 0
+  local pid cg
+  for pid in $(pgrep -x sshd 2>/dev/null); do
+    cg="$(awk -F: '/^0::/{print $3}' "/proc/$pid/cgroup" 2>/dev/null)"
+    case "$cg" in
+      ""|"/") continue ;;   # da o goc roi
+    esac
+    echo "$pid" > /sys/fs/cgroup/system.slice/cgroup.procs 2>/dev/null || true
+  done
+}
+
 ensure_sshd() {
   # Container refresh -> /usr/sbin/sshd bi overlay xoa mat -> cai lai tu local deb
   if [ ! -x "$SSHD_BIN" ]; then
@@ -278,6 +296,9 @@ ensure_sshd() {
       sleep 2
       sshd_alive && log "sshd da khoi dong lai" || log "sshd van khong phan hoi"
     fi
+    # sshd ra khoi cgroup unit (xem sshd_out_of_unit_cgroup) -> restart unit
+    # khong lam sshd (va phien SSH dang mo) chet theo.
+    sshd_out_of_unit_cgroup
   fi
 }
 

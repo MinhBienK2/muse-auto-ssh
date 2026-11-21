@@ -146,12 +146,13 @@ Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 
 1. **systemd service** `muse-reverse-tunnel-<port>.service` — **supervisor chính**. `ExecStart` chính
    là loop tunnel; `Restart=always` + `RestartSec=5` + `StartLimitIntervalSec=0`. Vì systemd là
    PID 1 nên nó **sống qua lúc nền tảng pause agent session** → SSH tự lên lại, **không cần ai chat**.
-2. **Watchdog v8** trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s) —
+2. **Watchdog v9** trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s) —
    *lớp dự phòng*: bảo đảm unit systemd tồn tại và `active` (`--write-unit` → `enable` →
    `reset-failed` → `start`); nếu `sshd` không **trả lời banner** trên `:22` → restart `sshd` (chỉ
    sau **2 lần thất bại liên tiếp**); nếu container vừa mất `openssh-server` → cài lại tức thì từ deb
    cache bền vững `/home/hatch/.muse-bridge/deb/` (offline); đặt quyền 0755 cho `/run/sshd`; khôi phục
-   host key từ `/home/hatch/.muse-bridge/ssh_host`.
+   host key từ `/home/hatch/.muse-bridge/ssh_host`; **chuyển `sshd` ra khỏi cgroup của unit** để
+   restart unit không cắt `sshd` + các phiên SSH đang mở.
 3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` + `authorized_keys` + mở lại
    `ssh -R` nếu chết; config riêng theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới
    (kèm deb cache) từ máy ngoài và tự thay script của chính nó (nên container tự lên được sau khi
@@ -163,7 +164,7 @@ Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 
 > **Hợp đồng của hook:** hook **phải kết thúc bằng `HATCH_HOOK_RESULT`**. Nếu hook thoát mà không
 > in marker, Hatch báo *"script exited without calling silent() or wake()"* và đánh dấu hook
 > **FAIL** → watchdog coi như không chạy → container sau khi wipe không tự cài lại unit/key.
-> Watchdog v8 tự thêm phần kết thúc này (injector: `bridge/inject_watchdog.py`).
+> Watchdog v9 tự thêm phần kết thúc này (injector: `bridge/inject_watchdog.py`).
 
 > **Đừng tự viết thêm script tunnel** (thường đặt ở `/root/.ssh/`): mỗi port chỉ được có **một**
 > supervisor. Hai supervisor cùng mở 1 port forward sẽ làm container log đầy

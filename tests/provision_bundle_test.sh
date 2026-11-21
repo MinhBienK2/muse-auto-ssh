@@ -71,8 +71,8 @@ if grep -q "setup xong" <<<"$out"; then echo "  ok   - provision chay het phan s
 
 ok "bundle local duoc refresh (VERSION khong con OLD)" \
   bash -c '! grep -q OLD-VERSION "$1/bundle/VERSION"' _ "$MUSE_BRIDGE_STATE"
-ok "inject_watchdog.py local la ban repo (watchdog v8)" \
-  grep -q "watchdog v8" "$MUSE_BRIDGE_STATE/bundle/inject_watchdog.py"
+ok "inject_watchdog.py local la ban repo (watchdog v9)" \
+  grep -q "watchdog v9" "$MUSE_BRIDGE_STATE/bundle/inject_watchdog.py"
 
 # Moi ban ghi ssh co chua 'cat > /root/.muse-bridge/bundle/<f>' phai mang dung
 # noi dung bundle local (ban moi), khong phai OLD.

@@ -91,6 +91,26 @@ if [ "$STRICT" = "0" ] && [ -f MUSE_PROMPT.md ]; then
   fi
 fi
 
+if [ "$STRICT" = "0" ]; then
+  # --- 3) kiem tra TUNG host that tren may nay -------------------------------
+  # Ly do: host id / hostname dai lam prompt LON hon ban probe co dinh ->
+  # vuot tran 18000 B (bo loc an toan cua Muse chan prompt lon). Ban probe
+  # co dinh khong bat duoc loi nay.
+  for cfg in "$HOME"/.muse-bridge/hosts/*.json; do
+    [ -f "$cfg" ] || continue
+    hid="$(basename "$cfg" .json)"
+    hport="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("peer",{}).get("port",""))' "$cfg" 2>/dev/null)"
+    [ -n "$hport" ] || continue
+    hsize="$(python3 scripts/render_prompt.py --host-id "$hid" --port "$hport" --stdout 2>/dev/null | wc -c)"
+    [ -n "$hsize" ] || continue
+    if [ "$hsize" -ge 18000 ]; then
+      fail "prompt cua host '$hid' qua dai ($hsize B >= 18000 B) - rut gon template truoc khi dan"
+    else
+      ok "prompt host '$hid' trong gioi han ($hsize B < 18000 B)"
+    fi
+  done
+fi
+
 if [ "$fails" = "0" ]; then
   echo "PROMPT_CHECK: PASS"
 else

@@ -95,3 +95,13 @@ git config core.hooksPath .githooks
   banner rồi `shutdown(SHUT_WR)` (FIN sạch), và chỉ restart `sshd` sau **2 lần thất bại liên tiếp**.
 - **Mỗi port chỉ một supervisor.** `pgrep -af "ssh .*-R <port>:"` phải ra **đúng 1** dòng. Hai dòng =
   hai supervisor tranh port → `remote port forwarding failed for listen port <port>` lặp mỗi 15s.
+- **`sshd` không được ở lại trong cgroup của unit tunnel.** `sshd` được start từ trong loop → nó kế
+  thừa cgroup `muse-reverse-tunnel-<port>.service` → `systemctl restart unit` giết **cả cgroup** →
+  `sshd` chết **và mọi phiên SSH đang mở bị cắt** (lệnh `push` fail, SSH mất ~20-30s). Loop + hook
+  phải chuyển `sshd` sang `system.slice` (`echo <pid> > /sys/fs/cgroup/system.slice/cgroup.procs`).
+- **Đừng restart unit tunnel chỉ vì version lệch.** Loop tự kéo bundle và `exec` lại chính nó
+  (ghi `.loop_version` sau ~1-2s) → watchdog bắt được khoảnh thời gian đó sẽ restart thừa → gián
+  đoạn. Watchdog chỉ restart khi mismatch **lặp lại 2 vòng hook**.
+- **`systemctl is-active /etc/systemd/system/<unit>.service` trả về `inactive` dù unit đang chạy.**
+  Khi kiểm tra, dùng **tên unit** hoặc `systemctl status` — không tin dạng đường dẫn, không "phát
+  hiện" sự cố giả.

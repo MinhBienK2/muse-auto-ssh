@@ -177,10 +177,12 @@ grep -q 'systemctl start "\$unit"' "$REPO_DIR/bridge/reverse-tunnel.sh"
 check "ensure_unit start unit khi unit chua active" $?
 grep -q 'exec /bin/bash "\$self"' "$REPO_DIR/bridge/reverse-tunnel.sh"
 check "loop tu exec ban moi sau khi tu cap nhat tu bundle" $?
-grep -q 'LOOP_VERSION="v12"' "$REPO_DIR/bridge/reverse-tunnel.sh"
-check "LOOP_VERSION da bump (v12) -> cell tu restart unit de lay code moi" $?
+grep -q 'LOOP_VERSION="v13"' "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "LOOP_VERSION da bump (v13) -> cell tu restart unit de lay code moi" $?
 grep -q 'for attempt in 1 2' "$REPO_DIR/bridge/reverse-tunnel.sh"
 check "sshd chi bi restart sau 2 lan that lien nhau" $?
+grep -q "sshd_out_of_unit_cgroup" "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "loop chuyen sshd ra khoi cgroup unit (restart unit khong cat SSH)" $?
 
 # --- 7) "--write-unit": MOT noi dung duy nhat sinh file unit ------------------
 # Hook va setup deu goi che do nay -> file unit khong bao gio lech.

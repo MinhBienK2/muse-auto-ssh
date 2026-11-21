@@ -621,8 +621,13 @@ install_bundle_local() {
   install -m 0755 "$SCRIPT_DIR/ts-socat-proxy.sh" "$STATE_DIR/bundle/ts-socat-proxy.sh"
   install -m 0755 "$SCRIPT_DIR/ts-connect-proxy.py" "$STATE_DIR/bundle/ts-connect-proxy.py"
   ensure_bundle_deb "$STATE_DIR/bundle/deb"
-  # VERSION: container tu keo bundle moi khi version doi (huong container -> may ngoai)
-  printf '%s\n' "$(date +%s)-$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)" > "$STATE_DIR/bundle/VERSION"
+  # VERSION: container tu keo bundle moi khi version doi (huong container -> may ngoai).
+  # Bundle lay tu WORKING TREE (khong phai git) -> ghi "-dirty" khi cay git chua
+  # commit, de khong nhin "commit 050f926" ma noi dung lai tu thay doi chua commit.
+  local ver_short ver_dirty=""
+  ver_short="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)"
+  if [ -n "$(git -C "$REPO_DIR" status --porcelain 2>/dev/null || true)" ]; then ver_dirty="-dirty"; fi
+  printf '%s\n' "$(date +%s)-${ver_short}${ver_dirty}" > "$STATE_DIR/bundle/VERSION"
 }
 
 auto_deploy_bundle() {

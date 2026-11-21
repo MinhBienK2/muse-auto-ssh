@@ -88,6 +88,22 @@ else
   ok "khong dung bash /dev/tcp trong code"
 fi
 
+# --- 4) probe banner KHONG duoc pipe qua "grep -q" -------------------------
+# Loi that (21/11): "…--banner … | grep -q SSH" -> grep thoat ngay khi co
+# "SSH" -> socket bi dong khi con du lieu chua doc -> kernel gui RST ->
+# sshd log "Connection reset by peer" -> nen tang gan "sshd_banner_failed" +
+# "sshd_config_invalid" -> flapping_backoff -> cell bi refresh.
+# Quy tac: BAT banner roi khop sau ("case \"$B\" in *SSH*)").
+# Scope: code chay trong container + prompt dan cho Muse (test local duoc
+# bo qua: test can chuoi DANG bi cam de kiem tra "khong co mau hinh nay").
+banner_pipe_hits="$(git grep -nE '\-\-banner[^|]*\|[^|]*grep +-q' -- bridge scripts '.agents/setup-ssh-muse/reference' ':!scripts/check_hygiene.sh' 2>/dev/null || true)"
+if [ -n "$banner_pipe_hits" ]; then
+  fail "pipe probe banner qua 'grep -q' (sinh RST -> sshd_banner_failed -> cell bi refresh):"
+  echo "$banner_pipe_hits" | sed 's/^/    /' >&2
+else
+  ok "khong pipe probe banner qua 'grep -q'"
+fi
+
 if [ "$fails" = "0" ]; then
   echo "HYGIENE_CHECK: PASS"
 else

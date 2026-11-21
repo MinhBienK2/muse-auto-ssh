@@ -625,6 +625,39 @@ install_bundle_local() {
   printf '%s\n' "$(date +%s)-$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo local)" > "$STATE_DIR/bundle/VERSION"
 }
 
+auto_deploy_bundle() {
+  # Tu dong day bundle moi len container khi repo da commit va cay git SACH.
+  # Ly do: container CHI chay code ma may ngoai day. Commit xong ma quen
+  # `push` -> container van chay ban cu (loop v9, hook v6) -> khi platform
+  # pause session agent, loop chet theo -> cell mat SSH ~45 phut. Day la
+  # nguyên nhân gốc của các đợt "cell chết lâu".
+  # An toàn: KHONG deploy khi cay git dang soan (deploy ban vung se lam
+  # container chet). TAT bang MUSE_AUTO_DEPLOY=0.
+  [ "${MUSE_AUTO_DEPLOY:-1}" = "1" ] || return 0
+  local head_now head_done
+  head_now="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
+  [ -n "$head_now" ] || return 0
+  head_done="$(cat "$STATE_DIR/.deployed_head" 2>/dev/null || true)"
+  [ "$head_now" != "$head_done" ] || return 0
+  if [ -n "$(git -C "$REPO_DIR" status --porcelain 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  install_bundle_local
+  local id port
+  for id in $(host_ids); do
+    port="$(host_peer_port "$id")"
+    host_reachable "$port" || continue
+    push_bundle "$port" >/dev/null 2>&1 || true
+  done
+  printf '%s\n' "$head_now" > "$STATE_DIR/.deployed_head"
+  local msg="tu dong day bundle moi len container (commit ${head_now:0:7})"
+  say "$msg"
+  if [ -n "${HOST:-}" ]; then
+    mkdir -p "$STATE_DIR/logs" 2>/dev/null || true
+    printf '%s %s\n' "$(date -Is)" "$msg" >> "$STATE_DIR/logs/inbox-$HOST.log" 2>/dev/null || true
+  fi
+}
+
 push_bundle() {
   local port="$1"
   host_reachable "$port" || { warn "khong ket noi duoc host tren port $port -> skip push bundle"; return 1; }
@@ -797,24 +830,41 @@ cmd_daemon() {
   # (chay nền) -> say ra stdout bi nuot, khong ai thay gi.
   watch_say() { printf '%s %s\n' "$(date -Is)" "$*" >>"$log"; printf '[bridge] %s\n' "$*"; }
   # vong lap auto-repair (nen): host nao chet -> gui tin nhan web de danh thuc container
-  # Chu ky mac dinh 120s (khong phai 600s): cell cua Hatch refresh lien tuc, moi lan
+  # Chu ky mac dinh 30s (khong phai 600s/120s): cell cua Hatch refresh lien tuc, moi lan
   # len chi song vai phut -> forward treo phai duoc don SOM, neu khong cell moi
   # khong bind duoc port (loi "remote port forwarding failed for listen port N").
-  local watch_interval="${WATCH_INTERVAL:-120}"
+  # 30s = do tre sau khi cell quay lai, thay vi 2 phut.
+  local watch_interval="${WATCH_INTERVAL:-30}"
   ( while true; do
       sleep "$watch_interval"
+      # Bundle moi (commit da len, cay git sach) -> day len container ngay.
+      # Container chi chay code may ngoai day; quen push = container chay ban cu
+      # -> het lop tu phuc hoi -> cell mat SSH lau.
+      auto_deploy_bundle || true
       local ids; ids="$(host_ids)"
       for id in $ids; do
         local p; p="$(host_peer_port "$id")"
         # Port forward con song nhung container da chet (bi dong bang) -> session
         # ssh cu giu chet port, container moi khong bind duoc. Dung session cu.
-        if ss -tln 2>/dev/null | grep -q ":$p\b" \
-           && ! timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$p" 2>/dev/null | grep -q SSH; then
-          if forward_release "$p"; then
-            watch_say "canh host '$id' (port $p): forward treo (container da chet) -> da dung session ssh cu giu port do"
-          else
-            watch_say "canh host '$id' (port $p): forward treo -> khong tim thay session sshd nao giu port (can sudo de don)"
-          fi
+        # Probe banner: BAT banner roi khop sau (khong pipe qua "grep -q" -> grep
+        # thoat som -> socket bi RST -> sshd log "Connection reset by peer").
+        local banner listening
+        banner=""; listening=0
+        if ss -tln 2>/dev/null | grep -q ":$p\b"; then
+          listening=1
+          banner="$(timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$p" 2>/dev/null || true)"
+        fi
+        if [ "$listening" = "1" ]; then
+          case "$banner" in
+            *SSH*) : ;;  # container con tra loi banner -> forward la cua no
+            *)
+              if forward_release "$p"; then
+                watch_say "canh host '$id' (port $p): forward treo (container da chet) -> da dung session ssh cu giu port do"
+              else
+                watch_say "canh host '$id' (port $p): forward treo -> khong tim thay session sshd nao giu port (can sudo de don)"
+              fi
+              ;;
+          esac
         fi
         if ! host_reachable "$p"; then
           if [ "${MUSE_WAKE_ALLOW:-0}" = "1" ]; then
@@ -1289,10 +1339,13 @@ cmd_release() {
       say "host '$id' (port $port): khong co listener -> khong can release"
       continue
     fi
-    if timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null | grep -q SSH; then
-      say "host '$id' (port $port): container van tra loi banner -> KHONG release (forward dang tot)"
-      continue
-    fi
+    local banner; banner="$(timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null || true)"
+    case "$banner" in
+      *SSH*)
+        say "host '$id' (port $port): container van tra loi banner -> KHONG release (forward dang tot)"
+        continue
+        ;;
+    esac
     if forward_release "$port"; then
       say "host '$id' (port $port): da dung session ssh cu giu port -> port da duoc nha"
     else
@@ -1372,10 +1425,14 @@ cmd_doctor() {
     if host_reachable "$port"; then printf 'ssh=OK '; else printf 'ssh=DOWN '; fi
     # Forward con song nhung container da chet: port van LISTEN, banner khong ve.
     if ss -tln 2>/dev/null | grep -q ":$port\b"; then
-      if ! timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null | grep -q SSH; then
-        printf 'STALE-FORWARD(da giu port) '
-        warn "  host '$id': port $port con listener nhung container khong tra loi banner -> session ssh cu bi treo. Lam: bash scripts/bridge.sh release --host $id (dung session dung port) | nen: sudo bash scripts/install_sshd_keepalive.sh"
-      fi
+      local banner; banner="$(timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 "$port" 2>/dev/null || true)"
+      case "$banner" in
+        *SSH*) : ;;
+        *)
+          printf 'STALE-FORWARD(da giu port) '
+          warn "  host '$id': port $port con listener nhung container khong tra loi banner -> session ssh cu bi treo. Lam: bash scripts/bridge.sh release --host $id (dung session dung port) | nen: sudo bash scripts/install_sshd_keepalive.sh"
+          ;;
+      esac
     fi
     local inbox=0 f
     for f in "$STATE_DIR/spools/$id/inbox"/*.json; do

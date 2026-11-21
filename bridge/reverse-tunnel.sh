@@ -14,10 +14,68 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Config rieng theo port: reverse-tunnel-<port>.sh -> tunnel-<port>.conf.
 # Neu khong co config theo port thi fallback ve tunnel.conf (the he).
 PORT="$(basename "${BASH_SOURCE[0]}" .sh | sed -n 's/^reverse-tunnel-\([0-9]\+\)$/\1/p')"
+
+write_unit_files() {
+  # Sinh file unit systemd + ban template ben vung. MOT noi dung duy nhat cho
+  # ca: muse_side.sh (setup) va hook (khoi phuc sau khi container refresh)
+  # -> unit khong bao gio lech giua 2 noi dung.
+  # Chi ghi lai khi NOI DUNG doi: hook goi "--write-unit" moi 15s -> ghi lai
+  # lien tuc se doi mtime file + thoi doi "daemon-reload" lien tuc (nhieu hon
+  # can thiet, va khoang cach giua "ghi file" va "daemon-reload" la khoang
+  # thoi gian unit chua duoc load -> co so "unit inactive" that).
+  local port="$1" loop="$2" log="$3" out="$4"
+  local tmp="$out.new.$$"
+  cat > "$tmp" <<EOF
+[Unit]
+Description=Muse reverse SSH tunnel (port $port) - may ngoai
+After=network.target
+# Tat hanh muc "start request repeated too quickly": mac dinh systemd bo qua
+# unit sau 5 lan start trong 10s -> unit chuyen "failed" va KHONG tu len lai
+# -> cell mat tunnel cho toi den khi hook chay lai.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c "mkdir -p /run/sshd /var/run/sshd"
+ExecStart=/bin/bash $loop
+Restart=always
+RestartSec=5
+StandardOutput=append:$log
+StandardError=append:$log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  if [ -f "$out" ] && cmp -s "$tmp" "$out"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  mv -f "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 CONFIG_FILE="$SCRIPT_DIR/tunnel-${PORT:-default}.conf"
 [ -f "$CONFIG_FILE" ] || CONFIG_FILE="$SCRIPT_DIR/tunnel.conf"
 # shellcheck source=/dev/null
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+
+# Thu muc chua file unit. Mac dinh la /etc/systemd/system; MUSE_UNIT_DIR de
+# test offline (va de container khong co systemd) ghi ra sandbox.
+UNIT_DIR="${MUSE_UNIT_DIR:-/etc/systemd/system}"
+
+# Che do "--write-unit": sinh unit roi thoat (dung khi can tao lai file unit
+# ma KHONG muốn chay loop - vd hook goi sau khi container bi refresh).
+if [ "${1:-}" = "--write-unit" ]; then
+  _loop="$SCRIPT_DIR/reverse-tunnel-${PORT:-2222}.sh"
+  _log="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
+  mkdir -p "$UNIT_DIR" 2>/dev/null || true
+  write_unit_files "${PORT:-2222}" "$_loop" "$_log" \
+    "$UNIT_DIR/muse-reverse-tunnel-${PORT:-2222}.service"
+  write_unit_files "${PORT:-2222}" "$_loop" "$_log" \
+    "$SCRIPT_DIR/muse-reverse-tunnel-${PORT:-2222}.service.template"
+  chmod 644 "$UNIT_DIR/muse-reverse-tunnel-${PORT:-2222}.service" 2>/dev/null || true
+  chmod 644 "$SCRIPT_DIR/muse-reverse-tunnel-${PORT:-2222}.service.template" 2>/dev/null || true
+  exit 0
+fi
 
 # LOCAL_IP / LOCAL_USER / REMOTE_PORT deu den tu tunnel-<port>.conf (sinh boi may ngoai).
 # Khong hard-code gia tri may cua mot nguoi cu the nao - may nao cung dung duoc.
@@ -31,13 +89,73 @@ LOG="${TUNNEL_LOG:-$SCRIPT_DIR/tunnel.log}"
 # tro sang noi khac khi can (test cung dung bien nay).
 SSHD_BIN="${SSHD_BIN:-/usr/sbin/sshd}"
 
-LOOP_VERSION="v10"
+LOOP_VERSION="v12"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 sshd_alive() {
   # sshd "chay" chua du - phai tra loi banner tren :22.
   # Dung python3: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3).
-  timeout 5 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null | grep -q SSH
+  # BAT pipe "| grep -q SSH": grep -q thoat ngay khi co ket qua -> pipe bi
+  # dong -> helper nhan EPIPE. Capture TOAN BO output roi khop SAU khi helper
+  # da thoat. (Helper doc het dong banner nen socket dong bang FIN, khong
+  # RST -> sshd khong log "Connection reset by peer".)
+  local banner
+  banner="$(timeout 8 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null || true)"
+  case "$banner" in *SSH*) return 0 ;; esac
+  return 1
+}
+
+in_unit_cgroup() {
+  # Tien trinh co nam trong cgroup cua unit systemd khong?
+  # Dung de biet "minh" co phai la supervisor chinh hay chi la ban sao.
+  local unit="$1"
+  local cg
+  cg="$(cat /proc/$$/cgroup 2>/dev/null || true)"
+  case "$cg" in *"$unit"*) return 0 ;; esac
+  return 1
+}
+
+ensure_unit() {
+  # systemd la supervisor CHINH cua tunnel. Ly do: hook runner cua Hatch la
+  # tien trinh con cua agent session; platform pause session do -> hook + moi
+  # tien trinh no spawn deu chet. Chi PID 1 (systemd) con song -> loop chay
+  # DUOI systemd thi duoc khoi dong lai trong <= RestartSec giay, khong can
+  # ai chat de "mo lai".
+  [ -d /run/systemd/system ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  # Tat khi chay loop ngoai container (test offline): khong duoc touching
+  # systemd cua may dang chay test.
+  [ "${MUSE_LOOP_NO_SYSTEMD:-0}" = "1" ] && return 0
+  local unit="muse-reverse-tunnel-${REMOTE_PORT}.service"
+  local dst="$UNIT_DIR/$unit"
+  # File unit do CHINH loop nay sinh (write_unit_files) -> luon dung ban moi
+  # nhat, khong bao gio lam theo template cu.
+  write_unit_files "$REMOTE_PORT" "$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh" \
+    "$LOG" "$dst"
+  write_unit_files "$REMOTE_PORT" "$SCRIPT_DIR/reverse-tunnel-${REMOTE_PORT}.sh" \
+    "$LOG" "$SCRIPT_DIR/muse-reverse-tunnel-${REMOTE_PORT}.service.template"
+  chmod 644 "$dst" 2>/dev/null || true
+  mkdir -p "$UNIT_DIR" 2>/dev/null || true
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable "$unit" >/dev/null 2>&1 || true
+  if systemctl is-active --quiet "$unit" 2>/dev/null; then
+    # Unit dang chay. Neu CHINH TA khong phai process cua unit -> day la ban
+    # sao -> thoat de khong tranh port "-R" voi supervisor chinh.
+    if ! in_unit_cgroup "$unit"; then
+      log "unit $unit da active (process khac) -> loop nay thoat, tranh 2 supervisor"
+      exit 0
+    fi
+    return 0
+  fi
+  systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+  log "unit $unit khong active -> start"
+  systemctl start "$unit" >/dev/null 2>&1 || true
+  sleep 2
+  if systemctl is-active --quiet "$unit" 2>/dev/null && ! in_unit_cgroup "$unit"; then
+    log "unit $unit da len -> loop nay thoat, tranh 2 supervisor"
+    exit 0
+  fi
+  return 0
 }
 
 ensure_authorized_keys() {
@@ -144,8 +262,16 @@ ensure_sshd() {
       "$SSHD_BIN" 2>/dev/null || true
       sleep 1
     fi
-    if ! sshd_alive; then
-      log "sshd khong tra loi banner -> restart"
+    # 2 lan that lien nhau moi restart sshd: 1 lan that co the chi la "cell
+    # dang chay nhe" -> pkill sshd giua chung -> tunnel chop chop.
+    local miss=0 attempt
+    for attempt in 1 2; do
+      if sshd_alive; then miss=0; break; fi
+      miss=$((miss + 1))
+      [ "$attempt" = "1" ] && sleep 2
+    done
+    if [ "$miss" -ge 2 ]; then
+      log "sshd khong tra loi banner 2 lan lien nhau -> restart"
       pkill -x sshd >/dev/null 2>&1 || true
       sleep 1
       "$SSHD_BIN" 2>/dev/null || true
@@ -204,7 +330,11 @@ pull_updates() {
   if [ -f "$bundle/reverse-tunnel.sh" ] && [ -f "$self" ] && ! cmp -s "$bundle/reverse-tunnel.sh" "$self"; then
     cp -f "$bundle/reverse-tunnel.sh" "$self.new" 2>/dev/null && mv -f "$self.new" "$self" 2>/dev/null \
       && chmod 700 "$self" 2>/dev/null \
-      && log "da tu cap nhat script loop tu bundle (se restart o vong lap tiep theo)"
+      && log "da tu cap nhat script loop tu bundle -> khoi dong lai vong lap"
+    # exec (thay the process, giu nguyen PID) de CODE MOI co hieu luc ngay,
+    # khong phai doi hook chay. Hook cua Hatch co the mat 45 phut -> loop phai
+    # tu cap nhat duoc ma khong can ai "day bundle" bang tay.
+    exec /bin/bash "$self"
   fi
   # Proxy helper cung tu cap nhat: duong truc tiep truoc, HTTP CONNECT proxy sau.
   if [ -f "$bundle/ts-socat-proxy.sh" ] && [ -d "$SCRIPT_DIR" ] \
@@ -233,6 +363,9 @@ pull_updates() {
 pull_updates
 # ghi version de watchdog biet khi can restart (script da duoc nang cap)
 printf '%s\n' "$LOOP_VERSION" > "$(dirname "$LOG")/.loop_version" 2>/dev/null || true
+# Ban giao quyen giam sat cho systemd (neu co). Neu unit chay roi, loop nay
+# (ban chay ngoai, do hook spawn) thoat de khong tranh port "-R".
+ensure_unit
 
 tunnel_alive() {
   # KHONG khop "ssh -N -R ...": thu tu flag co the khac nhau
@@ -261,12 +394,21 @@ start_tunnel() {
 
 PULL_EVERY=5
 PULL_N=0
+# Backoff khi tunnel chet lien tuc (may ngoai/proxy down): mo lai moi 15s se
+# lam may nhe + nhay log. Tang dan thoi gian cho, toi da 60s.
+TUNNEL_FAILS=0
 while true; do
   ensure_authorized_keys
   ensure_sshd
   if ! tunnel_alive; then
+    TUNNEL_FAILS=$((TUNNEL_FAILS + 1))
     start_tunnel
     sleep 5
+    if [ "$TUNNEL_FAILS" -ge 3 ]; then
+      sleep 25
+    fi
+  else
+    TUNNEL_FAILS=0
   fi
   PULL_N=$((PULL_N + 1))
   if [ "$PULL_N" -ge "$PULL_EVERY" ]; then

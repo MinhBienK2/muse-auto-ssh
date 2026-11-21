@@ -70,7 +70,17 @@ chmod +x "$STUB/pgrep"
 PORT=9999
 TUN="$TMP/tunnel"; mkdir -p "$TUN"
 cp "$REPO_DIR/bridge/reverse-tunnel.sh" "$TUN/reverse-tunnel-$PORT.sh"
-cp "$REPO_DIR/bridge/ts-connect-proxy.py" "$TUN/ts-connect-proxy.py"
+# Stub banner helper: loop goi "ts-connect-proxy.py --banner 127.0.0.1 22" de
+# kiem tra sshd. Dung file that o day se quet cong 22 that cua may chay test
+# (va treo toi 8s moi lan) -> stub tra ve banner ngay.
+cat > "$TUN/ts-connect-proxy.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+if "--banner" in sys.argv:
+    sys.stdout.write("SSH-2.0-STUB\r\n")
+sys.exit(0)
+EOF
+chmod +x "$TUN/ts-connect-proxy.py"
 cat > "$TUN/tunnel-$PORT.conf" <<EOF
 LOCAL_IP="127.0.0.1"
 LOCAL_USER="testuser"
@@ -81,7 +91,8 @@ TUNNEL_LOG="$TUN/tunnel.log"
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$STUB/proxy-stub"; chmod +x "$STUB/proxy-stub"
 
-PATH="$STUB:$PATH" SSHD_BIN="$STUB/sshd-stub" STUB_SSH_TTL=6 \
+# MUSE_LOOP_NO_SYSTEMD=1: loop khong duoc touching systemd cua may chay test.
+PATH="$STUB:$PATH" SSHD_BIN="$STUB/sshd-stub" STUB_SSH_TTL=6 MUSE_LOOP_NO_SYSTEMD=1 \
   bash "$TUN/reverse-tunnel-$PORT.sh" >"$TUN/loop.out" 2>&1 &
 LOOP_PID=$!
 
@@ -151,10 +162,63 @@ exit 0
 EOF
 chmod +x "$STUB/socat"
 out="$(printf 'ping' | PATH="$STUB:$PATH" timeout 10 bash "$REPO_DIR/bridge/ts-socat-proxy.sh" 127.0.0.1 65000 2>/dev/null)"
-[ -s "$TMP/socat.calls" ]
-check "khi noi truc tiep that bai thi moi dung den proxy (duong cuu)" $?
-[ -z "$out" ]
-check "duong cuu khong ghi them du lieu lung tung" $?
+rc=0; [ -s "$TMP/socat.calls" ] || rc=1
+check "khi noi truc tiep that bai thi moi dung den proxy (duong cau)" "$rc"
+rc=0; [ -z "$out" ] || rc=1
+check "duong cuu khong ghi them du lieu lung tung" "$rc"
+
+# --- 6) loop phai TU cai unit systemd + tu cap nhat ma khong can hook --------
+# Ly do: hook runner cua Hatch chet theo agent session (platform pause session)
+# -> 45 phut cell mat SSH. Loop chay duoi systemd + tu exec ban moi thi
+# khoi phuc duoc trong vai giay, khong can ai chat.
+grep -q "ensure_unit()" "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "loop co ham ensure_unit (tu cai unit systemd)" $?
+grep -q 'systemctl start "\$unit"' "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "ensure_unit start unit khi unit chua active" $?
+grep -q 'exec /bin/bash "\$self"' "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "loop tu exec ban moi sau khi tu cap nhat tu bundle" $?
+grep -q 'LOOP_VERSION="v12"' "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "LOOP_VERSION da bump (v12) -> cell tu restart unit de lay code moi" $?
+grep -q 'for attempt in 1 2' "$REPO_DIR/bridge/reverse-tunnel.sh"
+check "sshd chi bi restart sau 2 lan that lien nhau" $?
+
+# --- 7) "--write-unit": MOT noi dung duy nhat sinh file unit ------------------
+# Hook va setup deu goi che do nay -> file unit khong bao gio lech.
+UNITS="$TMP/units"; mkdir -p "$UNITS"
+MUSE_UNIT_DIR="$UNITS" bash "$TUN/reverse-tunnel-$PORT.sh" --write-unit >/dev/null 2>&1
+UNIT_FILE="$UNITS/muse-reverse-tunnel-$PORT.service"
+if [ -f "$UNIT_FILE" ]; then
+  check "--write-unit sinh ra file unit" 0
+else
+  check "--write-unit sinh ra file unit" 1
+fi
+grep -q "StartLimitIntervalSec=0" "$UNIT_FILE" 2>/dev/null
+check "unit tat hanh muc start (khong bao gio chet vinh vien)" $?
+grep -q "Restart=always" "$UNIT_FILE" 2>/dev/null
+check "unit Restart=always" $?
+grep -q "RestartSec=5" "$UNIT_FILE" 2>/dev/null
+check "unit RestartSec=5 (len <=5s)" $?
+grep -q "ExecStart=/bin/bash $TUN/reverse-tunnel-$PORT.sh" "$UNIT_FILE" 2>/dev/null
+check "unit tro dung script loop" $?
+if [ -f "$TUN/muse-reverse-tunnel-$PORT.service.template" ]; then
+  check "--write-unit luu ban template ben vung" 0
+else
+  check "--write-unit luu ban template ben vung" 1
+fi
+
+# --- 8) ghi lai file unit KHONG doi noi dung -> KHONG doi mtime -------------
+# Hook goi "--write-unit" moi 15s. Neu ghi lai lien tuc: doi mtime file +
+# "daemon-reload" lien tuc, va giua "ghi file" voi "daemon-reload" co mot khoang
+# thoi gian unit chua duoc load -> co so "unit inactive" that.
+mtime_before="$(stat -c %Y "$UNIT_FILE" 2>/dev/null || echo x)"
+sleep 1
+MUSE_UNIT_DIR="$UNITS" bash "$TUN/reverse-tunnel-$PORT.sh" --write-unit >/dev/null 2>&1
+mtime_after="$(stat -c %Y "$UNIT_FILE" 2>/dev/null || echo y)"
+if [ "$mtime_before" = "$mtime_after" ]; then
+  check "--write-unit idempotent (khong doi mtime khi noi dung giong)" 0
+else
+  check "--write-unit idempotent (khong doi mtime khi noi dung giong)" 1
+fi
 
 echo
 if [ "$fails" = "0" ]; then echo "TUNNEL_TEST: PASS"; else echo "TUNNEL_TEST: FAIL ($fails)"; fi

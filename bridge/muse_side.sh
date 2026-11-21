@@ -90,7 +90,15 @@ ensure_pkgs() {
 sshd_alive() {
   # sshd "chay" (pgrep) khong du - phai tra loi duoc banner tren :22.
   # Dung python3: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3).
-  timeout 5 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null | grep -q SSH
+  # BAT banner roi khop (khong pipe qua "grep -q"): grep thoat som -> probe bi
+  # SIGPIPE -> socket dong khi con du lieu chua doc -> kernel gui RST ->
+  # sshd log "Connection reset by peer".
+  local banner
+  banner="$(timeout 5 python3 "$SCRIPT_DIR/ts-connect-proxy.py" --banner 127.0.0.1 22 2>/dev/null || true)"
+  case "$banner" in
+    *SSH*) return 0 ;;
+  esac
+  return 1
 }
 
 ensure_sshd() {
@@ -248,34 +256,10 @@ ensure_systemd_unit() {
   # is-system-running tra exit != 0 khi system "degraded" -> dung /run/systemd/system de kiem tra
   [ -d /run/systemd/system ] || return 1
   local unit="/etc/systemd/system/muse-reverse-tunnel-$LOCAL_PORT.service"
-  local tmp="$unit.tmp.$$"
-  cat > "$tmp" <<EOF
-[Unit]
-Description=Muse reverse SSH tunnel (port $LOCAL_PORT) - may ngoai
-After=network.target
-
-[Service]
-Type=simple
-ExecStartPre=/bin/bash -c "mkdir -p /run/sshd /var/run/sshd"
-ExecStart=/bin/bash $LOOP
-Restart=always
-RestartSec=10
-StandardOutput=append:$BASE/tunnel/tunnel.log
-StandardError=append:$BASE/tunnel/tunnel.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  if [ -f "$unit" ] && cmp -s "$tmp" "$unit"; then
-    rm -f "$tmp"
-  else
-    mv -f "$tmp" "$unit"
-  fi
-  # luu template o vung BEN VUNG (/home/hatch) de watchdog tu cai lai sau khi refresh
-  local tpl="$BASE/tunnel/muse-reverse-tunnel-$LOCAL_PORT.service.template"
-  if ! cmp -s "$unit" "$tpl"; then
-    cp -f "$unit" "$tpl" 2>/dev/null || true
-  fi
+  # File unit do CHINH loop sinh (--write-unit) -> 1 noi dung duy nhat cho ca
+  # setup va hook, khong bao gio lech.
+  /bin/bash "$LOOP" --write-unit >/dev/null 2>&1 || true
+  [ -f "$unit" ] || return 1
   systemctl daemon-reload >/dev/null 2>&1
   systemctl enable "muse-reverse-tunnel-$LOCAL_PORT.service" >/dev/null 2>&1
   # CHI MOT supervisor: stop service -> tat moi loop cu -> start lai service

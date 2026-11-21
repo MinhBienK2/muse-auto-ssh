@@ -335,7 +335,7 @@ Sau khi cài, mỗi bên có thể dùng `ssh muse` (từ máy bạn) để vào
 | `QUEUED` khi gửi | Peer chưa sẵn sàng | Không mất tin → `bash scripts/bridge.sh sync` (hoặc `pull` nếu chỉ còn 1 chiều) |
 | Muse báo `Permission denied` | Key Muse mới chưa được authorize | `sudo bash scripts/install_tofu_hook.sh` (TOFU) |
 | Port `2222` bận | Tunnel cũ còn treo | `ss -tlnp | grep 2222` → dừng tunnel cũ rồi `bridge.sh push` |
-| `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo, hoặc container đã đóng băng | Watchdog v6 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng → `bash scripts/bridge.sh repair --host <id>` (đánh thức qua web) |
+| `127.0.0.1:2222` báo "banner exchange timeout" | `sshd` của Muse treo, hoặc container đã đóng băng | Watchdog v8 tự restart `sshd` (nếu container còn chạy); nếu container đã đóng băng hoàn toàn → `bash scripts/bridge.sh repair --host <id>` (đánh thức qua web, cần `MUSE_WAKE_ALLOW=1`) |
 | Container báo "remote port forwarding failed for listen port 2222" | Session ssh cũ còn treo trên máy ngoài và đang giữ port | `bash scripts/bridge.sh release --host <id>` (dừng đúng session giữ port); lâu dài: `sudo bash scripts/install_sshd_keepalive.sh` (1 lần) để sshd tự đóng session treo |
 | Container báo "remote port forwarding failed" **liên tục mỗi 15s** | Có **hai** supervisor cùng mở 1 port (ví dụ Agent Muse tự viết thêm script tunnel trong `/root/.ssh/`) | Trong container: `pgrep -af "ssh .*-R <port>:"` → dừng script thừa, chỉ giữ `/home/hatch/workspace/muse-platform-setup/tunnel/reverse-tunnel-<port>.sh` |
 | Web driver mở ra trang "Log in" của muse.ai | Clone Chrome đổi tên profile (`Profile 2` → `Default`) nên mất phiên đăng nhập | Clone phải **giữ nguyên tên profile** và mở bằng `--profile-directory` (xem `bridge/muse_web.py`) |
@@ -366,6 +366,38 @@ phải lỗi — nên phải **thiết kế cho nó**, đừng cố ngăn.
 Phía máy bạn tự phục hồi trong ~2 phút: daemon nền thấy container refresh → `auto-reprovision`
 (bus + watchdog + loop tunnel + systemd) qua SSH. Tin nhắn đang chờ không mất (spool bền) —
 nhưng **job đang chạy thì chết**, và dữ liệu nằm ngoài `/home/hatch` cũng chết theo.
+
+#### 6.1.1. Khi cell bị pause/refresh giữa chừng — SSH có tự lên không?
+
+**Có, và không cần chat.** Supervisor của tunnel là **systemd (PID 1)** — nó sống qua lúc nền tảng
+pause agent session (hook của Hatch thì không: hook là tiến trình con của agent session, chết theo).
+
+| Việc | Kết quả đo được trên cell thật |
+|---|---|
+| Giết cả loop tunnel **và** `sshd` (mô phỏng platform giết session) | Port ngoài (`127.0.0.1:<port>`) nhận lại **sau 19 s** — không chat, không wake |
+| `systemctl status muse-reverse-tunnel-<port>.service` | `active (running)`, `Main PID` = loop, `CGroup: /system.slice/…` |
+| `pgrep -af "ssh .*-R <port>:"` | **đúng 1 dòng** (đừng để hai supervisor tranh port) |
+
+Nguyên tắc: **supervisor phải sống lâu hơn thứ nó giám sát**. Loop tunnel phải là `ExecStart` của
+unit systemd (`Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`), **không** được chạy bằng
+`nohup` từ hook. Chi tiết và nguyên nhân gốc: `PROTOCOL.md` mục 8.2–8.3.
+
+> `MUSE_WAKE_ALLOW` (đánh thức cell qua chat) **mặc định tắt** và không cần bật: lớp tự phục hồi
+> của cell đã đủ để SSH tự lên. Lớp đó chỉ hữu ích khi cell **đã đóng băng hoàn toàn** — lúc đó
+> không tiến trình nào trong container chạy.
+
+#### 6.1.2. Sửa xong trong repo — làm sao để cell nhận được?
+
+Container **không** tự thấy commit của bạn. Nó kéo bundle qua file `VERSION`; bundle local chỉ
+được làm mới khi `arm`/`push`/`provision`. Nên có daemon local tự làm việc này:
+
+```bash
+# mặc định BẬT: HEAD đổi + cây git sạch -> refresh bundle + đẩy lên các host đang kết nối
+MUSE_AUTO_DEPLOY=1     # tắt: MUSE_AUTO_DEPLOY=0
+```
+
+Daemon cũng tự dò mỗi 30 s (`WATCH_INTERVAL`). Nếu bạn sửa xong mà **không** muốn đẩy lên cell
+(lỡ tay sửa dở), cứ để cây git **bẩn** — auto-deploy sẽ bỏ qua, đừng commit nhầm.
 
 Xem số lần restart và thời gian sống thực tế:
 

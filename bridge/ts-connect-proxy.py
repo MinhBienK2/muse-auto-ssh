@@ -3,8 +3,7 @@
 
     ts-connect-proxy.py <host> <port> | --banner <host> <port>
 
-Ban goc duy nhat: prompt inject nguyen file nay (render_prompt.py); container dung
-python3 co san khi thieu socat. ts-socat-proxy.sh goi file nay lam fallback.
+Ban goc duy nhat: prompt inject nguyen file nay (render_prompt.py).
 """
 import os
 import select
@@ -16,7 +15,7 @@ PROXY_PORT = int(os.environ.get("PROXY_PORT", "3130"))
 
 
 def open_conn(host, port):
-    """Thu noi thang truoc (container co tailscale rieng); that bai thi qua proxy."""
+    """Noi thang truoc (container co tailscale rieng); that bai thi qua proxy."""
     try:
         return socket.create_connection((host, port), 8)
     except OSError:
@@ -36,13 +35,34 @@ def open_conn(host, port):
 
 
 def banner_probe(host, port, timeout):
-    """In 4 byte dau (banner SSH) cua host:port. Thay bash /dev/tcp (co the bi TAT)."""
+    """In dong banner SSH cua host:port. Doc HET dong banner roi shutdown(SHUT_WR)
+    truoc khi dong socket: doc 4 byte roi dong -> kernel gui RST -> sshd log
+    "Connection reset by peer" (nhieu nhieu, co the bi gan "sshd_banner_failed")."""
     try:
-        with socket.create_connection((host, port), timeout) as sock:
-            sock.settimeout(timeout)
-            os.write(1, sock.recv(4))
+        sock = socket.create_connection((host, port), timeout)
     except OSError:
         return 1
+    try:
+        sock.settimeout(timeout)
+        data = b""
+        while b"\n" not in data and len(data) < 512:
+            chunk = sock.recv(256)
+            if not chunk:
+                break
+            data += chunk
+        try:
+            sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        if data:
+            os.write(1, data)
+    except OSError:
+        return 1
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
     return 0
 
 

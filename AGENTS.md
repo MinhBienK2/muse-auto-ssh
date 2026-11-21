@@ -80,3 +80,18 @@ git config core.hooksPath .githooks
   chứa artifact (prompt render, `setup_state.json`, log web). Đừng tìm config kết nối trong repo.
 - `provision`/`push` tự refresh bundle local trước khi đẩy; container pull qua `~/.muse-bridge/bundle`
   theo `VERSION`. Đẩy bundle bằng tay mà quên refresh = đẩy bản cũ (watchdog/loop không lên đời).
+- **Supervisor phải sống lâu hơn thứ nó giám sát.** Hook của Hatch là tiến trình **con của agent
+  session** → platform pause session là hook chết, và **mọi tiến trình hook spawn cũng chết**. Loop
+  tunnel chạy bằng `nohup` từ hook là **orphan** → SSH mất ~45 phút không ai bật lại (đã xảy ra
+  21/11/2026). Loop **phải** là `ExecStart` của unit systemd; hook chỉ *bảo đảm* unit (sinh file →
+  `enable` → `reset-failed` → `start`), tuyệt đối không làm supervisor thứ hai.
+- **Commit ≠ lên cell.** Container chỉ biết bundle qua `VERSION`; bundle local chỉ refresh khi
+  `arm`/`push`/`provision` (hoặc auto-deploy của daemon: HEAD đổi + cây git sạch → đẩy lên các
+  host đang kết nối). Muốn chắc chắn thì verify trên chính cell
+  (`ssh <alias> 'grep -o "LOOP_VERSION=\"[^\"]*\"" …/reverse-tunnel-<port>.sh'`).
+- **Không pipe probe banner qua `grep -q`.** `grep` thoát sớm → socket đóng khi còn dữ liệu chưa đọc
+  → kernel gửi **RST** → `sshd` log `Connection reset by peer` → nền tảng gắn `sshd_banner_failed` +
+  `sshd_config_invalid` → `flapping_backoff` → cell bị refresh. Probe phải **đọc hết một dòng**
+  banner rồi `shutdown(SHUT_WR)` (FIN sạch), và chỉ restart `sshd` sau **2 lần thất bại liên tiếp**.
+- **Mỗi port chỉ một supervisor.** `pgrep -af "ssh .*-R <port>:"` phải ra **đúng 1** dòng. Hai dòng =
+  hai supervisor tranh port → `remote port forwarding failed for listen port <port>` lặp mỗi 15s.

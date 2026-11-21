@@ -141,25 +141,34 @@ Kèm kết luận ngắn: kênh đã thông chưa, đã gửi gì về máy ngo�
 
 ## 7. Tự phục hồi
 
-Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 8.2):
+Máy ngoài cài **4 lớp** tự phục hồi (chi tiết: `PROTOCOL.md` mục 8.2–8.3):
 
-1. **systemd service** `muse-reverse-tunnel-<port>.service` — supervisor chính, `Restart=always`.
-2. **Watchdog v6** trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s):
-   nếu `sshd` không **trả lời banner** trên `:22` → restart `sshd`; nếu container vừa mất
-   `openssh-server` → cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline);
-   đặt quyền 0755 cho `/run/sshd`; khôi phục host key từ `/home/hatch/.muse-bridge/ssh_host`;
-   nếu `/etc` bị wipe → cài lại unit systemd từ bản bền ở `/home/hatch`.
-3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` (tự cài lại từ deb cache nếu thiếu +
-   quyền 0755 + khôi phục host key) + `authorized_keys` + mở lại `ssh -R` nếu chết; config riêng
-   theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới (kèm deb cache) từ máy ngoài và tự
-   thay script của chính nó (nên container tự lên được sau khi bị wipe).
+1. **systemd service** `muse-reverse-tunnel-<port>.service` — **supervisor chính**. `ExecStart` chính
+   là loop tunnel; `Restart=always` + `RestartSec=5` + `StartLimitIntervalSec=0`. Vì systemd là
+   PID 1 nên nó **sống qua lúc nền tảng pause agent session** → SSH tự lên lại, **không cần ai chat**.
+2. **Watchdog v8** trong `/home/hatch/hooks/scripts/muse-platform-boot.sh` (Hatch gọi mỗi 15s) —
+   *lớp dự phòng*: bảo đảm unit systemd tồn tại và `active` (`--write-unit` → `enable` →
+   `reset-failed` → `start`); nếu `sshd` không **trả lời banner** trên `:22` → restart `sshd` (chỉ
+   sau **2 lần thất bại liên tiếp**); nếu container vừa mất `openssh-server` → cài lại tức thì từ deb
+   cache bền vững `/home/hatch/.muse-bridge/deb/` (offline); đặt quyền 0755 cho `/run/sshd`; khôi phục
+   host key từ `/home/hatch/.muse-bridge/ssh_host`.
+3. **Loop `reverse-tunnel-<port>.sh`** — mỗi 10s: kiểm tra `sshd` + `authorized_keys` + mở lại
+   `ssh -R` nếu chết; config riêng theo port (`tunnel-<port>.conf`). Vòng lặp tự kéo code mới
+   (kèm deb cache) từ máy ngoài và tự thay script của chính nó (nên container tự lên được sau khi
+   bị wipe, **không cần hook**).
 4. **Auto-repair qua web** — máy ngoài gửi tin vào chat `muse.ai` để **đánh thức container** khi
-   nền tảng đóng băng nó (lớp 1–3 không chạy được khi container không chạy).
+   nền tảng đóng băng nó (lớp 1–3 không chạy được khi container không chạy). **Mặc định tắt**
+   (`MUSE_WAKE_ALLOW=0`) — chỉ bật khi thật sự cần đánh thức một cell đã đóng băng hoàn toàn.
 
 > **Hợp đồng của hook:** hook **phải kết thúc bằng `HATCH_HOOK_RESULT`**. Nếu hook thoát mà không
 > in marker, Hatch báo *"script exited without calling silent() or wake()"* và đánh dấu hook
 > **FAIL** → watchdog coi như không chạy → container sau khi wipe không tự cài lại unit/key.
-> Watchdog v6 tự thêm phần kết thúc này (injector: `bridge/inject_watchdog.py`).
+> Watchdog v8 tự thêm phần kết thúc này (injector: `bridge/inject_watchdog.py`).
 
-Bạn không cần can thiệp, nhưng nếu thấy tunnel chết thì báo lại. Khi container bị đóng băng, cách
-duy nhất đánh thức nó là qua chat — vì vậy **giữ chat đó hoạt động** nếu được.
+> **Đừng tự viết thêm script tunnel** (thường đặt ở `/root/.ssh/`): mỗi port chỉ được có **một**
+> supervisor. Hai supervisor cùng mở 1 port forward sẽ làm container log đầy
+> `remote port forwarding failed for listen port <port>`.
+
+Bạn không cần can thiệp, nhưng nếu thấy tunnel chết thì báo lại. Khi container bị **đóng băng hoàn
+toàn** (không tiến trình nào chạy) thì cách đánh thức duy nhất là qua chat — vì vậy **giữ chat đó
+hoạt động** nếu được. Còn khi cell chỉ bị pause/refresh, SSH tự lên lại trong ~20 giây.

@@ -288,12 +288,18 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 
 ### 8.2. Bốn lớp tự phục hồi (đều đã kiểm chứng thật)
 
+> **Nguyên tắc rút ra từ sự cố 21/11/2026:** *supervisor phải sống lâu hơn thứ nó giám sát.*
+> Hook của Hatch là tiến trình **con của agent session** → khi nền tảng pause session, hook **và
+> mọi tiến trình nó spawn** chết theo. Tunnel loop được hook spawn bằng `nohup` là **orphan** →
+> chết theo session, không ai bật lại → cell mất SSH ~45 phút. Nay **systemd (PID 1) là supervisor**:
+> nó sống qua cả lần platform pause session; hook chỉ còn là lớp dự phòng.
+
 | Lớp | Chạy ở đâu | Cơ chế | Đã kiểm chứng |
 |---|---|---|---|
-| 1. **systemd service** `muse-reverse-tunnel-<port>.service` | container Muse | Chạy loop tunnel, `Restart=always`; sống qua cả lần container restart | ✅ trên cả 2 host |
-| 2. **Watchdog v6** trong Hatch boot hook | container Muse | `sshd` phải **trả lời banner** (treo → restart); mất `openssh-server` sau refresh → tự cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; `/etc` bị wipe → cài lại unit từ bản bền ở `/home/hatch`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ cài trên cả 2 host |
-| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` (tự cài lại từ deb cache nếu thiếu + quyền 0755 + khôi phục host key) + `authorized_keys` + mở lại `ssh -R` nếu chết; tự kéo bundle mới (kèm deb cache) từ máy ngoài và tự thay script của chính nó | ✅ tunnel bị giết/wiped → tự phục hồi sau ~10-15s |
-| 4. **Auto-repair qua web** | máy ngoài | `bridge.sh repair --host <id>`: kênh chết → gửi tin nhắn vào **chat riêng của host** (card `thread`) để **đánh thức container** bị đóng băng; daemon tự làm mỗi 5 phút | ✅ đánh thức được container, tunnel tự lên |
+| 1. **systemd service** `muse-reverse-tunnel-<port>.service` — **supervisor chính** | container Muse | `ExecStart` = loop tunnel; `Restart=always` + `RestartSec=5` + `StartLimitIntervalSec=0` (không bao giờ rơi vào `failed` vì đạt giới hạn start); **loop tự sinh lại file unit** (một nguồn duy nhất) nên `/etc` bị wipe vẫn tự dựng được | ✅ 4/4 cell: `active`, `enabled`, `NRestarts=0` |
+| 2. **Watchdog v8** trong Hatch boot hook — *lớp dự phòng* | container Muse | Bảo đảm **unit tồn tại + active** (`--write-unit` → `enable` → `reset-failed` → `start`); `sshd` phải **trả lời banner** (treo → restart, nhưng **chỉ sau 2 lần liên tiếp**); mất `openssh-server` sau refresh → cài lại tức thì từ deb cache bền vững `/home/hatch/.muse-bridge/deb/` (offline, không cần mạng); đảm bảo `/run/sshd` quyền 0755; khôi phục SSH host key bền vững từ `/home/hatch/.muse-bridge/ssh_host/`; hook **phải** kết thúc bằng `HATCH_HOOK_RESULT` | ✅ inject v8 trên 4/4 cell |
+| 3. **Loop `reverse-tunnel-<port>.sh`** | container Muse | Mỗi 10s: check `sshd` + `authorized_keys` + mở lại `ssh -R` nếu chết (backoff khi chết liên tục); **tự kéo bundle** từ máy ngoài (mỗi 5 vòng) và `exec` lại chính nó → code mới có hiệu lực **không cần hook**; tự cài unit systemd nếu thiếu | ✅ giết loop + `sshd` → port ngoài lại **sau 19s** |
+| 4. **Auto-repair qua web** (tùy chọn, **mặc định TẮT**) | máy ngoài | `bridge.sh repair --host <id>`: gửi tin vào **chat riêng của host** để đánh thức container **đã đóng băng hoàn toàn**; chỉ chạy khi `MUSE_WAKE_ALLOW=1` | ⏸ mặc định tắt — SSH **không** cần lớp này để tự phục hồi |
 
 > **Lưu ý về port forward bị giữ:** khi container bị **đóng băng** (không phải tắt), phiên ssh của nó
 > trên máy ngoài vẫn treo và vẫn giữ port forward `2222`/`2223`. Container mới sẽ không bind được
@@ -312,11 +318,44 @@ Hệ quả: **mã nguồn chỉ đi qua kênh SSH đã xác thực**, không bao
 > Lý do cần lớp 4: nền tảng có thể **đóng băng (checkpoint) hoặc treo (suspend) container** — lúc đó
 > không tiến trình nào trong container chạy, nên lớp 1–3 không thể chạy. Chỉ có thể đánh thức container
 > từ bên ngoài (gửi tin nhắn vào **chat riêng** của nó, xem 8.0.1), rồi lớp 1–3 lo phần còn lại.
+> Lớp 4 **mặc định tắt** (`MUSE_WAKE_ALLOW=0`) — bật lên chỉ khi thật sự cần đánh thức một cell đã
+> đóng băng hoàn toàn; SSH tự phục hồi (mục 8.3) không cần nó.
 >
 > **Quan sát thực tế:** chat bên (side chat) của Muse có thể bị nền tảng treo khi lâu không dùng →
 > container của nó ngừng chạy → tunnel rơi. Khi đó `bridge.sh repair` (hoặc daemon tự gọi mỗi 5 phút)
 > gửi tin nhắn vào đúng chat riêng đó → cell được đánh thức → tunnel tự lên lại. Nếu muốn container sống
 > liên tục thì cần mở chat đó trên `muse.ai` (nền tảng giữ cell active khi chat đang mở).
+
+### 8.3. Vì sao SSH tự lên lại được — không cần chat, không cần wake
+
+Sự cố 21/11/2026 (SSH mất ~45 phút trên các cell) đã được truy nguyên từ **log thật của container**:
+
+| Bằng chứng | Kết luận |
+|---|---|
+| `hatch-execd` (hook runner) là tiến trình **con của agent session** | Platform pause session → hook chết → **mọi thứ hook spawn cũng chết** |
+| Loop tunnel lúc đó do hook spawn bằng `nohup` (PPID=1 nhưng **không thuộc cgroup systemd**) | Loop là **orphan**: chết theo session, **không ai bật lại** → mất SSH |
+| Bundle pull của các cell dừng ở bản cũ (commit `f7a3cbb`, có logic systemd) | Bản sửa **đã commit nhưng chưa được đẩy** → fix nằm trên máy, không có trong container |
+| `systemctl status` sau khi sửa: `Active: active (running)`, `Main PID` = loop, `CGroup: /system.slice/muse-reverse-tunnel-<port>.service` | Supervisor = **systemd (PID 1)**, sống qua lúc platform pause agent session |
+| Kill thử trên cell thật: giết cả loop **và** `sshd` → port ngoài lại nhận **sau 19 s** | Tự phục hồi **không cần chat, không cần wake** |
+
+Ba quy tắc rút ra, áp dụng cho mọi thay đổi sau này:
+
+1. **Loop tunnel KHÔNG được chạy bằng `nohup` từ hook.** Nó phải là `ExecStart` của unit systemd.
+   Hook chỉ *bảo đảm* unit (sinh file → `enable` → `reset-failed` → `start`), không được làm
+   supervisor thứ hai.
+2. **Một commit không tự tới được container.** Container kéo bundle qua `VERSION`; bundle local chỉ
+   được làm mới khi `arm`/`push`/`provision` (hoặc auto-deploy: daemon local thấy HEAD đổi + cây
+   git sạch → refresh bundle + đẩy lên các host đang kết nối). Đừng tin "đã commit" là "đã lên cell".
+3. **Probe banner không được sinh RST.** Đọc **hết một dòng** banner rồi `shutdown(SHUT_WR)` → FIN
+   sạch. Đóng socket khi còn dữ liệu chưa đọc trong receive buffer → kernel gửi **RST** →
+   `sshd` log `Connection reset by peer` → nền tảng có thể gắn cặp `sshd_banner_failed` +
+   `sshd_config_invalid` → `flapping_backoff` → cell bị refresh. Vì vậy **không** pipe probe qua
+   `grep -q` (grep thoát sớm → đóng sớm → RST), và chỉ restart `sshd` sau **2 lần thất bại liên tiếp**
+   (một lần timeout chưa đủ để kết luận `sshd` treo).
+
+> **Đo được trên cell thật:** `systemctl is-active` = `active`, `NRestarts` theo dõi được,
+> `pgrep -af "ssh .*-R <port>:"` → **đúng 1 dòng**, loop có `PPID=1` và nằm trong cgroup
+> `/system.slice/muse-reverse-tunnel-<port>.service`.
 
 ---
 

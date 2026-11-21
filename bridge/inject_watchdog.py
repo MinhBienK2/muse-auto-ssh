@@ -29,6 +29,19 @@ v6 sua 2 loi con "silent":
 v7 sua loi probe banner: bash build co the TAT /dev/tcp (vd Ubuntu bash 5.3)
 -> probe cu LUON fail -> watchdog pkill sshd moi 15s du sshd dang tot -> tunnel
 chop chop, provision dang chay thi bi cat. v7 probe banner bang python3.
+
+v8 sua 3 loi lam cell "chết im" (khong can chat de mo lai):
+  - UNIT PHẢI luôn tồn tại + active. Hook runner của Hatch là tiến trình con
+    của agent session; khi platform pause session đó, hook + mọi tiến trình
+    no spawn (kể cả loop tunnel) đều chết. Chỉ PID 1 (systemd) còn sống ->
+    loop phải chạy DƯỚI systemd thì tự lên lại trong <= RestartSec giây.
+  - Probe banner phải "bắt" (capture) output rồi mới so khớp, và chỉ restart
+    sshd sau 2 lần thất bại LIÊN TIẾP. `... | grep -q SSH` làm helper bị EPIPE,
+    còn helper đọc thiếu dữ liệu sẽ khiến kernel gửi RST -> sshd log
+    "Connection reset by peer" liên tục -> có thể bị platform gán
+    "sshd_banner_failed" -> flapping_backoff -> refresh cell.
+  - Nếu unit có nhưng không active (fail) -> hook tự chạy loop dự phòng, để
+    cell không bao giờ mất tunnel.
 """
 
 from __future__ import annotations
@@ -37,15 +50,15 @@ import os
 import re
 import sys
 
-BEGIN = "# [muse-bridge watchdog v7] BEGIN"
-END = "# [muse-bridge watchdog v7] END"
+BEGIN = "# [muse-bridge watchdog v8] BEGIN"
+END = "# [muse-bridge watchdog v8] END"
 
 # Template dung placeholder "@@NAME@@" + str.replace, KHONG dung "%"-format.
 # Ly do: "%"-format se an mat moi "%" literal trong shell (vi du "date +%s" ->
 # "date +{'port': '2222'}") -> nhanh tay lam hong CHINH nhanh tu cai openssh-server.
 # Dung "@@" thi "%" trong shell luon an toàn.
 BLOCK = """
-# [muse-bridge watchdog v7] BEGIN
+# [muse-bridge watchdog v8] BEGIN
 # Block chay sau "set -euo pipefail" -> phai tu phong loi (hook khong duoc FAIL)
 set +e
 set +u
@@ -114,7 +127,19 @@ elif [ -f "$SSHD_CFG_SEED" ]; then
     mkdir -p /etc/ssh 2>/dev/null || true
     cp -f "$SSHD_CFG_SEED" "$SSHD_CFG" 2>/dev/null || true
 fi
-if ! timeout 5 python3 /home/hatch/.muse-bridge/bundle/ts-connect-proxy.py --banner 127.0.0.1 22 2>/dev/null | grep -q SSH; then
+# 1d) Probe banner: BAT pipe "grep -q" (grep -q thoat ngay khi co ket qua ->
+#     helper bi EPIPE) va chi restart sshd sau 2 lan that lien nhau.
+#     Mot lan that co the chi la "cell dang chay nhe" -> pkill sshd giua chung
+#     -> tunnel chop chop. 2 lan lien nhau moi coi la sshd that su.
+BANNER=""
+for try in 1 2; do
+    BANNER="$(timeout 8 python3 /home/hatch/.muse-bridge/bundle/ts-connect-proxy.py --banner 127.0.0.1 22 2>/dev/null || true)"
+    case "$BANNER" in
+        *SSH*) BANNER="" ; break ;;
+    esac
+    sleep 2
+done
+if [ -n "$BANNER" ]; then
     pkill -x sshd >/dev/null 2>&1 || true
     sleep 1
     /usr/sbin/sshd >/dev/null 2>&1 || true
@@ -123,19 +148,23 @@ fi
 #    - co systemd -> unit per-port la CHINH, hook chi kick no
 #    - khong co systemd -> hook tu chay loop
 UNIT="muse-reverse-tunnel-@@PORT@@.service"
-TPL="@@TPL@@"
 HAVE_SYSTEMD=0
 if [ -d /run/systemd/system ]; then
     HAVE_SYSTEMD=1
-    # container refresh -> /etc bi xoa: cai lai unit tu template BEN VUNG
-    if [ -f "$TPL" ] && [ ! -f "/etc/systemd/system/$UNIT" ]; then
-        cp -f "$TPL" "/etc/systemd/system/$UNIT" 2>/dev/null || true
-        systemctl daemon-reload >/dev/null 2>&1 || true
-        systemctl enable "$UNIT" >/dev/null 2>&1 || true
-    fi
+    # Unit PHAI luon ton tai + active. Ly do: hook runner cua Hatch la tien
+    # trinh con cua agent session. Khi platform pause session do, hook + moi
+    # tien trinh no spawn (ke ca loop tunnel) deu chet -> cell mat SSH 45
+    # phut. Chi PID 1 (systemd) con song -> loop chay DUOI systemd thi tu
+    # len lai trong <= RestartSec giay, khong can ai chat.
+    # File unit do CHINH loop sinh (--write-unit) -> 1 noi dung duy nhat,
+    # khong bao gio lech giua hook va setup.
+    /bin/bash @@LOOP@@ --write-unit >/dev/null 2>&1 || true
     if [ -f "/etc/systemd/system/$UNIT" ]; then
-        systemctl is-active --quiet "$UNIT" 2>/dev/null || \\
+        systemctl enable "$UNIT" >/dev/null 2>&1 || true
+        if ! systemctl is-active --quiet "$UNIT" 2>/dev/null; then
+            systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
             systemctl start "$UNIT" >/dev/null 2>&1 || true
+        fi
     fi
 fi
 # 3) script loop da duoc nang cap (version khac) -> restart de dung code moi
@@ -170,17 +199,19 @@ if [ -n "$WANT" ] && [ "$WANT" != "$HAVE" ]; then
     fi
     sleep 2
 fi
-# 4) fallback: CHI khi khong co systemd unit moi tu chay loop
-#    (co unit thi hook KHONG duoc spawn them -> 2 supervisor tranh port -R)
+# 4) fallback: CHI khi khong co systemd unit (hoac unit co ma khong active)
+#    moi tu chay loop. Neu unit dang active -> KHONG duoc spawn them (2
+#    supervisor tranh port -R).
 #    Khop theo "-R <port>:" de khong phu thuoc thu tu flag cua lenh ssh
 #    (co the la "ssh -i KEY -N -R ...").
-if [ "$HAVE_SYSTEMD" != "1" ] || [ ! -f "/etc/systemd/system/$UNIT" ]; then
+if [ "$HAVE_SYSTEMD" != "1" ] || [ ! -f "/etc/systemd/system/$UNIT" ] \\
+   || ! systemctl is-active --quiet "$UNIT" 2>/dev/null; then
     if ! pgrep -f -- "-R @@PORT@@:" >/dev/null 2>&1; then
         nohup /bin/bash @@LOOP@@ >> @@LOG@@ >/dev/null 2>&1 &
     fi
 fi
 set -eu
-# [muse-bridge watchdog v7] END
+# [muse-bridge watchdog v8] END
 """
 
 # TAIL: hook PHAI ket thuc bang HATCH_HOOK_RESULT (Hatch goi "failed" neu thieu).
@@ -188,7 +219,7 @@ set -eu
 # roi ket thuc o day. Hook da co silent that (muse-platform) -> da thoat truoc
 # TAIL, dong nay khong duoc chay.
 TAIL = """
-# [muse-bridge watchdog v7] TAIL
+# [muse-bridge watchdog v8] TAIL
 if ! declare -F silent >/dev/null 2>&1; then
     silent() { printf 'HATCH_HOOK_RESULT:{"decision":"silent","reason":"%s"}\\n' "${1:-ok}"; exit 0; }
 fi
@@ -230,13 +261,11 @@ def main(argv: list) -> int:
 
     log = loop.rsplit("/", 1)[0] + "/tunnel.log"
     port = port_from_loop(loop)
-    tpl = loop.rsplit("/", 1)[0] + "/muse-reverse-tunnel-%s.service.template" % port
     # Substitute bang str.replace (khong phai "%"-format): "%" trong shell block
     # (vi du "date +%s") phai duoc giu nguyen.
     inject = BLOCK
     for token, value in (
         ("@@PORT@@", port),
-        ("@@TPL@@", tpl),
         ("@@LOOP@@", loop),
         ("@@LOG@@", log),
     ):
@@ -272,7 +301,7 @@ def main(argv: list) -> int:
 
     with open(hook, "w", encoding="utf-8") as fh:
         fh.write(content)
-    print("inject_watchdog: watchdog v7 da duoc inject vao %s" % hook)
+    print("inject_watchdog: watchdog v8 da duoc inject vao %s" % hook)
     return 0
 
 
